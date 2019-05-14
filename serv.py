@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import z3
+import copy
+from itertools import chain
 from functools import reduce
 
 
@@ -24,12 +26,9 @@ def cat(*args):
 
 
 class MultiCycleTransaction:
-	def __init__(self, name: str,inputs, outputs, sequence):
+	def __init__(self, name: str, sequence):
 		self.name = name
-		self.inputs = inputs
-		self.outputs = outputs
 		self.sequence = sequence
-
 
 HavocCount = 0
 def havoc(name: str, bits: int):
@@ -62,6 +61,18 @@ class ShiftReg:
 		raise RuntimeError("TODO")
 
 
+def serial_lsb_to_msb(bits, inputs, outputs) -> list:
+	return [
+		{ name: z3.Extract(ii,ii, sym)
+		  for name, sym in chain(inputs.items(), outputs.items())
+		} for ii in range(bits)]
+
+def clear(name: str, data_seq: list, cycles=1) -> list:
+	zero, one = z3.BitVecVal(0, 1), z3.BitVecVal(1, 1)
+	seq = [{name: one}] * cycles
+	seq += [{**cc, name: zero} for cc in data_seq]
+	return seq
+
 class SerAdd:
 	def __init__(self, c_r=None, do_havoc=False):
 		self.c_r = state('c_r', z3.BitVecVal(0, bv=1), c_r, do_havoc)
@@ -69,29 +80,21 @@ class SerAdd:
 
 	def next(self, a, b, clr):
 		axorb = a ^ b
-		outputs = {
-			'o_v': (axorb & self.c_r) | (a & b),
-			'q': axorb ^ self.c_r
-		}
-		self.c_r = (~clr) & outputs['o_v']
-		return outputs
+		o_v = (axorb & self.c_r) | (a & b)
+		q = axorb ^ self.c_r
+		self.c_r = (~clr) & o_v
+		return {'o_v': o_v, 'q': q}
 
 	@staticmethod
 	def Add(bits) -> MultiCycleTransaction:
-		zero, one = z3.BitVecVal(0, 1), z3.BitVecVal(1,1)
 		a, b = z3.BitVec('a', bits), z3.BitVec('b', bits)
+
 		c = a + b
-		sequence = [{'clr': one}] + [{
-			'clr': zero,
-			'a': z3.Extract(ii,ii, a),
-			'b': z3.Extract(ii, ii, b),
-			'q': z3.Extract(ii, ii, c)
-		} for ii in range(bits)]
-
-		inputs = {'a': a, 'b': b}
-		outputs = {'c': c}
-
-		return MultiCycleTransaction('Add', inputs=inputs, outputs=outputs, sequence=sequence)
+		carry = head(z3.ZeroExt(1, a) + z3.ZeroExt(1,b), 1)
+		
+		sequence = clear('clr', serial_lsb_to_msb(bits, {'a': a, 'b': b}, {'q': c}))
+		sequence[-1].update({'o_v': carry})
+		return MultiCycleTransaction('Add', sequence=sequence)
 
 
 # def clone(bv: z3.BitVecRef, suffix: str):
@@ -108,36 +111,37 @@ def record_values(s: z3.Solver, values, prefix=""):
 		lbl = z3.BitVec(prefix + "_" + name, value.size())
 		s.add(lbl == value)
 
-def check_transaction(ModuleClass, transcation: MultiCycleTransaction):
-	print(f"Trying to verify transaction {transcation.name} on module {ModuleClass.__name__}")
+def check_transaction(ModuleClass, trans: MultiCycleTransaction):
+	print(f"Trying to verify transaction {trans.name} on module {ModuleClass.__name__}")
 	m = ModuleClass(do_havoc=True)
 
 	equivalent = z3.BoolVal(True)
 
-	print(f"Unrolling for {len(transcation.sequence)} cycles")
+	print(f"Unrolling for {len(trans.sequence)} cycles")
 
 	s = z3.Solver()
 
-	for ii, step in enumerate(transcation.sequence):
+	for ii, step in enumerate(trans.sequence):
 		iis = make_inputs(step, m.inputs)
 		record_values(s, iis, f"step{ii}_in")
 		oos = m.next(**iis)
 		record_values(s, oos, f"step{ii}_out")
-		print(ii)
-		print(check_outputs(step, oos))
-		print(m.c_r)
-		print()
+		# print(ii)
+		# print(check_outputs(step, oos))
+		# print(m.c_r)
+		# print()
 		equivalent = z3.And(equivalent, check_outputs(step, oos))
 
 
-	print(equivalent)
-
-
-	# s.add(z3.Not(equivalent))
-	# is_sat = s.check()
-	# print("(invalid)" if is_sat else "(valid)")
-	# if is_sat:
-	# 	print(s.model())
+	s.add(z3.Not(equivalent))
+	is_sat = (s.check() == z3.sat)
+	print("(invalid)" if is_sat else "(valid)")
+	if is_sat:
+		print(s.model())
+		print("Failed to verify!")
+	else:
+		print("Successfully verified!")
+	print()
 
 
 
