@@ -91,11 +91,38 @@ class SerAdd:
 
 		c = a + b
 		carry = head(z3.ZeroExt(1, a) + z3.ZeroExt(1,b), 1)
-		
+
 		sequence = clear('clr', serial_lsb_to_msb(bits, {'a': a, 'b': b}, {'q': c}))
 		sequence[-1].update({'o_v': carry})
 		return MultiCycleTransaction('Add', sequence=sequence)
 
+
+class SerShift:
+	def __init__(self, cnt=None, signbit=None, wrapped=None, do_havoc=False):
+		self.cnt = state('cnt', z3.BitVec('cnt', bv=6), cnt, do_havoc)
+		self.signbit = state('signbit', z3.BitVec('signbit', bv=1), signbit, do_havoc)
+		self.wrapped = state('wrapped', z3.BitVec('wrapped', bv=1), wrapped, do_havoc)
+		self.inputs = {'load': 1, 'shamt': 5, 'shamt_msb': 1, 'signbit': 1, 'right': 1, 'd': 1}
+
+	def next(self, load, shamt, shamt_msb, signbit, right, d):
+		done = tail(self.cnt, 5) == shamt
+		q = z3.If(right != self.wrapped, d, self.signbit)
+		self.signbit = z3.If(load, signbit & right, self.signbit)
+		self.wrapped = head(self.cnt, 1) | shamt_msb & ~right
+		self.cnt = z3.If(load, z3.BitVecVal(0, 6), self.cnt + 1)
+		return {'q': q, 'done': done}
+
+
+	def next_left(self, load, shamt, shamt_msb, d):
+		done = tail(self.cnt, 5) == shamt
+		q = z3.If(self.wrapped, d, 0)
+		self.wrapped = head(self.cnt, 1) | shamt_msb
+		self.cnt = z3.If(load, z3.BitVecVal(0, 6), self.cnt + 1)
+		return {'q': q, 'done': done}
+
+	@staticmethod
+	def ShiftLeft():
+		pass
 
 # def clone(bv: z3.BitVecRef, suffix: str):
 # 	assert len(suffix) > 0
@@ -148,7 +175,7 @@ def check_transaction(ModuleClass, trans: MultiCycleTransaction):
 
 
 def main():
-	check_transaction(SerAdd, SerAdd.Add(2))
+	check_transaction(SerAdd, SerAdd.Add(32))
 
 	return 0
 
