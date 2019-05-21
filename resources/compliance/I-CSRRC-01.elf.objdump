@@ -1,0 +1,219 @@
+
+/home/kevin/d/riscv-compliance/work/rv32i/I-CSRRC-01.elf:     file format elf32-littleriscv
+
+
+Disassembly of section .text.init:
+
+00000000 <_start>:
+   0:	00001797          	auipc	a5,0x1
+   4:	00078793          	mv	a5,a5
+   8:	00100093          	li	ra,1
+   c:	00000113          	li	sp,0
+  10:	7ff101b7          	lui	gp,0x7ff10
+  14:	fff18193          	addi	gp,gp,-1 # 7ff0ffff <_end+0x7ff0ef9f>
+  18:	80000237          	lui	tp,0x80000
+  1c:	fff00293          	li	t0,-1
+  20:	34029073          	csrw	mscratch,t0
+  24:	3400b0f3          	csrrc	ra,mscratch,ra
+  28:	340290f3          	csrrw	ra,mscratch,t0
+  2c:	34013173          	csrrc	sp,mscratch,sp
+  30:	34029173          	csrrw	sp,mscratch,t0
+  34:	3401b1f3          	csrrc	gp,mscratch,gp
+  38:	340291f3          	csrrw	gp,mscratch,t0
+  3c:	34023273          	csrrc	tp,mscratch,tp
+  40:	34029273          	csrrw	tp,mscratch,t0
+  44:	3402b2f3          	csrrc	t0,mscratch,t0
+  48:	340012f3          	csrrw	t0,mscratch,zero
+  4c:	0007a023          	sw	zero,0(a5) # 1000 <data_begin>
+  50:	0017a223          	sw	ra,4(a5)
+  54:	0027a423          	sw	sp,8(a5)
+  58:	0037a623          	sw	gp,12(a5)
+  5c:	0047a823          	sw	tp,16(a5)
+  60:	0057aa23          	sw	t0,20(a5)
+  64:	00001297          	auipc	t0,0x1
+  68:	fb428293          	addi	t0,t0,-76 # 1018 <test_A2_res>
+  6c:	00100593          	li	a1,1
+  70:	00000613          	li	a2,0
+  74:	7ff106b7          	lui	a3,0x7ff10
+  78:	fff68693          	addi	a3,a3,-1 # 7ff0ffff <_end+0x7ff0ef9f>
+  7c:	80000737          	lui	a4,0x80000
+  80:	fff00793          	li	a5,-1
+  84:	34079073          	csrw	mscratch,a5
+  88:	3405b5f3          	csrrc	a1,mscratch,a1
+  8c:	34063673          	csrrc	a2,mscratch,a2
+  90:	3406b6f3          	csrrc	a3,mscratch,a3
+  94:	34073773          	csrrc	a4,mscratch,a4
+  98:	3407b7f3          	csrrc	a5,mscratch,a5
+  9c:	34003873          	csrrc	a6,mscratch,zero
+  a0:	00b2a023          	sw	a1,0(t0)
+  a4:	00c2a223          	sw	a2,4(t0)
+  a8:	00d2a423          	sw	a3,8(t0)
+  ac:	00e2a623          	sw	a4,12(t0)
+  b0:	00f2a823          	sw	a5,16(t0)
+  b4:	0102aa23          	sw	a6,20(t0)
+  b8:	00001d17          	auipc	s10,0x1
+  bc:	f78d0d13          	addi	s10,s10,-136 # 1030 <test_B_res>
+  c0:	12345ab7          	lui	s5,0x12345
+  c4:	678a8a93          	addi	s5,s5,1656 # 12345678 <_end+0x12344618>
+  c8:	fff00a13          	li	s4,-1
+  cc:	340a1073          	csrw	mscratch,s4
+  d0:	340abb73          	csrrc	s6,mscratch,s5
+  d4:	340b3af3          	csrrc	s5,mscratch,s6
+  d8:	340a1bf3          	csrrw	s7,mscratch,s4
+  dc:	340bbc73          	csrrc	s8,mscratch,s7
+  e0:	34003cf3          	csrrc	s9,mscratch,zero
+  e4:	015d2023          	sw	s5,0(s10)
+  e8:	016d2223          	sw	s6,4(s10)
+  ec:	017d2423          	sw	s7,8(s10)
+  f0:	018d2623          	sw	s8,12(s10)
+  f4:	019d2823          	sw	s9,16(s10)
+  f8:	00001097          	auipc	ra,0x1
+  fc:	f4c08093          	addi	ra,ra,-180 # 1044 <test_C_res>
+ 100:	42727f37          	lui	t5,0x42727
+ 104:	e6ff0f13          	addi	t5,t5,-401 # 42726e6f <_end+0x42725e0f>
+ 108:	340f1073          	csrw	mscratch,t5
+ 10c:	340f3073          	csrc	mscratch,t5
+ 110:	0000a023          	sw	zero,0(ra)
+ 114:	01e0a223          	sw	t5,4(ra)
+ 118:	00001117          	auipc	sp,0x1
+ 11c:	f3410113          	addi	sp,sp,-204 # 104c <test_D_res>
+ 120:	f7ff9fb7          	lui	t6,0xf7ff9
+ 124:	818f8f93          	addi	t6,t6,-2024 # f7ff8818 <_end+0xf7ff77b8>
+ 128:	340f9073          	csrw	mscratch,t6
+ 12c:	34003073          	csrc	mscratch,zero
+ 130:	34003073          	csrc	mscratch,zero
+ 134:	34003ff3          	csrrc	t6,mscratch,zero
+ 138:	00012023          	sw	zero,0(sp)
+ 13c:	01f12223          	sw	t6,4(sp)
+ 140:	00001117          	auipc	sp,0x1
+ 144:	f1410113          	addi	sp,sp,-236 # 1054 <test_E_res>
+ 148:	fff00213          	li	tp,-1
+ 14c:	963852b7          	lui	t0,0x96385
+ 150:	27428293          	addi	t0,t0,628 # 96385274 <_end+0x96384214>
+ 154:	321653b7          	lui	t2,0x32165
+ 158:	49838393          	addi	t2,t2,1176 # 32165498 <_end+0x32164438>
+ 15c:	34021073          	csrw	mscratch,tp
+ 160:	3402b2f3          	csrrc	t0,mscratch,t0
+ 164:	3403b3f3          	csrrc	t2,mscratch,t2
+ 168:	34043473          	csrrc	s0,mscratch,s0
+ 16c:	00512023          	sw	t0,0(sp)
+ 170:	00712223          	sw	t2,4(sp)
+ 174:	00812423          	sw	s0,8(sp)
+ 178:	00001517          	auipc	a0,0x1
+ 17c:	e8850513          	addi	a0,a0,-376 # 1000 <data_begin>
+ 180:	00001597          	auipc	a1,0x1
+ 184:	ee058593          	addi	a1,a1,-288 # 1060 <_end>
+ 188:	80000637          	lui	a2,0x80000
+
+0000018c <complience_halt_loop>:
+ 18c:	06b50063          	beq	a0,a1,1ec <complience_halt_break>
+ 190:	00450693          	addi	a3,a0,4
+
+00000194 <complience_halt_loop2>:
+ 194:	fff68693          	addi	a3,a3,-1
+ 198:	00068703          	lb	a4,0(a3)
+ 19c:	40475793          	srai	a5,a4,0x4
+ 1a0:	00f7f793          	andi	a5,a5,15
+ 1a4:	00a00813          	li	a6,10
+ 1a8:	0107c463          	blt	a5,a6,1b0 <notLetter>
+ 1ac:	02778793          	addi	a5,a5,39
+
+000001b0 <notLetter>:
+ 1b0:	03078793          	addi	a5,a5,48
+ 1b4:	00f62023          	sw	a5,0(a2) # 80000000 <_end+0x7fffefa0>
+ 1b8:	40075793          	srai	a5,a4,0x0
+ 1bc:	00f7f793          	andi	a5,a5,15
+ 1c0:	00a00813          	li	a6,10
+ 1c4:	0107c463          	blt	a5,a6,1cc <notLetter2>
+ 1c8:	02778793          	addi	a5,a5,39
+
+000001cc <notLetter2>:
+ 1cc:	03078793          	addi	a5,a5,48
+ 1d0:	00f62023          	sw	a5,0(a2)
+ 1d4:	fcd510e3          	bne	a0,a3,194 <complience_halt_loop2>
+ 1d8:	00450513          	addi	a0,a0,4
+ 1dc:	00a00713          	li	a4,10
+ 1e0:	00e62023          	sw	a4,0(a2)
+ 1e4:	fa9ff06f          	j	18c <complience_halt_loop>
+ 1e8:	0040006f          	j	1ec <complience_halt_break>
+
+000001ec <complience_halt_break>:
+ 1ec:	90000537          	lui	a0,0x90000
+ 1f0:	00d52023          	sw	a3,0(a0) # 90000000 <_end+0x8fffefa0>
+
+Disassembly of section .data:
+
+00001000 <data_begin>:
+    1000:	ffff                	0xffff
+    1002:	ffff                	0xffff
+    1004:	ffff                	0xffff
+    1006:	ffff                	0xffff
+    1008:	ffff                	0xffff
+    100a:	ffff                	0xffff
+    100c:	ffff                	0xffff
+    100e:	ffff                	0xffff
+    1010:	ffff                	0xffff
+    1012:	ffff                	0xffff
+    1014:	ffff                	0xffff
+    1016:	ffff                	0xffff
+
+00001018 <test_A2_res>:
+    1018:	ffff                	0xffff
+    101a:	ffff                	0xffff
+    101c:	ffff                	0xffff
+    101e:	ffff                	0xffff
+    1020:	ffff                	0xffff
+    1022:	ffff                	0xffff
+    1024:	ffff                	0xffff
+    1026:	ffff                	0xffff
+    1028:	ffff                	0xffff
+    102a:	ffff                	0xffff
+    102c:	ffff                	0xffff
+    102e:	ffff                	0xffff
+
+00001030 <test_B_res>:
+    1030:	ffff                	0xffff
+    1032:	ffff                	0xffff
+    1034:	ffff                	0xffff
+    1036:	ffff                	0xffff
+    1038:	ffff                	0xffff
+    103a:	ffff                	0xffff
+    103c:	ffff                	0xffff
+    103e:	ffff                	0xffff
+    1040:	ffff                	0xffff
+    1042:	ffff                	0xffff
+
+00001044 <test_C_res>:
+    1044:	ffff                	0xffff
+    1046:	ffff                	0xffff
+    1048:	ffff                	0xffff
+    104a:	ffff                	0xffff
+
+0000104c <test_D_res>:
+    104c:	ffff                	0xffff
+    104e:	ffff                	0xffff
+    1050:	ffff                	0xffff
+    1052:	ffff                	0xffff
+
+00001054 <test_E_res>:
+    1054:	ffff                	0xffff
+    1056:	ffff                	0xffff
+    1058:	ffff                	0xffff
+    105a:	ffff                	0xffff
+    105c:	ffff                	0xffff
+    105e:	ffff                	0xffff
+
+Disassembly of section .riscv.attributes:
+
+00000000 <.riscv.attributes>:
+   0:	1941                	addi	s2,s2,-16
+   2:	0000                	unimp
+   4:	7200                	flw	fs0,32(a2)
+   6:	7369                	lui	t1,0xffffa
+   8:	01007663          	bgeu	zero,a6,14 <_start+0x14>
+   c:	0000000f          	fence	unknown,unknown
+  10:	7205                	lui	tp,0xfffe1
+  12:	3376                	fld	ft6,376(sp)
+  14:	6932                	flw	fs2,12(sp)
+  16:	7032                	flw	ft0,44(sp)
+  18:	0030                	addi	a2,sp,8

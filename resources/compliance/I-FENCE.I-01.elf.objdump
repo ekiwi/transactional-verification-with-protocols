@@ -1,0 +1,108 @@
+
+/home/kevin/d/riscv-compliance/work/rv32i/I-FENCE.I-01.elf:     file format elf32-littleriscv
+
+
+Disassembly of section .text.init:
+
+00000000 <_start>:
+   0:	00001817          	auipc	a6,0x1
+   4:	00480813          	addi	a6,a6,4 # 1004 <test_A_data>
+   8:	00001897          	auipc	a7,0x1
+   c:	00888893          	addi	a7,a7,8 # 1010 <data_begin>
+  10:	00000193          	li	gp,0
+  14:	00082083          	lw	ra,0(a6)
+  18:	00482103          	lw	sp,4(a6)
+  1c:	00001a17          	auipc	s4,0x1
+  20:	fe4a0a13          	addi	s4,s4,-28 # 1000 <instr_A_src>
+  24:	00000a97          	auipc	s5,0x0
+  28:	014a8a93          	addi	s5,s5,20 # 38 <instr_A_dst>
+  2c:	000a2783          	lw	a5,0(s4)
+  30:	00faa023          	sw	a5,0(s5)
+  34:	0000100f          	fence.i
+
+00000038 <instr_A_dst>:
+  38:	00000137          	lui	sp,0x0
+  3c:	0018a023          	sw	ra,0(a7)
+  40:	0028a223          	sw	sp,4(a7)
+  44:	0038a423          	sw	gp,8(a7)
+  48:	00f8a623          	sw	a5,12(a7)
+  4c:	00001517          	auipc	a0,0x1
+  50:	fc450513          	addi	a0,a0,-60 # 1010 <data_begin>
+  54:	00001597          	auipc	a1,0x1
+  58:	fcc58593          	addi	a1,a1,-52 # 1020 <_end>
+  5c:	80000637          	lui	a2,0x80000
+
+00000060 <complience_halt_loop>:
+  60:	06b50063          	beq	a0,a1,c0 <complience_halt_break>
+  64:	00450693          	addi	a3,a0,4
+
+00000068 <complience_halt_loop2>:
+  68:	fff68693          	addi	a3,a3,-1
+  6c:	00068703          	lb	a4,0(a3)
+  70:	40475793          	srai	a5,a4,0x4
+  74:	00f7f793          	andi	a5,a5,15
+  78:	00a00813          	li	a6,10
+  7c:	0107c463          	blt	a5,a6,84 <notLetter>
+  80:	02778793          	addi	a5,a5,39
+
+00000084 <notLetter>:
+  84:	03078793          	addi	a5,a5,48
+  88:	00f62023          	sw	a5,0(a2) # 80000000 <_end+0x7fffefe0>
+  8c:	40075793          	srai	a5,a4,0x0
+  90:	00f7f793          	andi	a5,a5,15
+  94:	00a00813          	li	a6,10
+  98:	0107c463          	blt	a5,a6,a0 <notLetter2>
+  9c:	02778793          	addi	a5,a5,39
+
+000000a0 <notLetter2>:
+  a0:	03078793          	addi	a5,a5,48
+  a4:	00f62023          	sw	a5,0(a2)
+  a8:	fcd510e3          	bne	a0,a3,68 <complience_halt_loop2>
+  ac:	00450513          	addi	a0,a0,4
+  b0:	00a00713          	li	a4,10
+  b4:	00e62023          	sw	a4,0(a2)
+  b8:	fa9ff06f          	j	60 <complience_halt_loop>
+  bc:	0040006f          	j	c0 <complience_halt_break>
+
+000000c0 <complience_halt_break>:
+  c0:	90000537          	lui	a0,0x90000
+  c4:	00d52023          	sw	a3,0(a0) # 90000000 <_end+0x8fffefe0>
+	...
+
+Disassembly of section .data:
+
+00001000 <instr_A_src>:
+    1000:	001101b3          	add	gp,sp,ra
+
+00001004 <test_A_data>:
+    1004:	0030                	addi	a2,sp,8
+    1006:	0000                	unimp
+    1008:	0012                	c.slli	zero,0x4
+    100a:	0000                	unimp
+    100c:	0000                	unimp
+	...
+
+00001010 <data_begin>:
+    1010:	ffff                	0xffff
+    1012:	ffff                	0xffff
+    1014:	ffff                	0xffff
+    1016:	ffff                	0xffff
+    1018:	ffff                	0xffff
+    101a:	ffff                	0xffff
+    101c:	ffff                	0xffff
+    101e:	ffff                	0xffff
+
+Disassembly of section .riscv.attributes:
+
+00000000 <.riscv.attributes>:
+   0:	1941                	addi	s2,s2,-16
+   2:	0000                	unimp
+   4:	7200                	flw	fs0,32(a2)
+   6:	7369                	lui	t1,0xffffa
+   8:	01007663          	bgeu	zero,a6,14 <_start+0x14>
+   c:	0000000f          	fence	unknown,unknown
+  10:	7205                	lui	tp,0xfffe1
+  12:	3376                	fld	ft6,376(sp)
+  14:	6932                	flw	fs2,12(sp)
+  16:	7032                	flw	ft0,44(sp)
+  18:	0030                	addi	a2,sp,8
