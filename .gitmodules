@@ -1,0 +1,3 @@
+[submodule "serv"]
+	path = serv
+	url = git@github.com:ekiwi/serv.git
