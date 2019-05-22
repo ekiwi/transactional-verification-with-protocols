@@ -3,7 +3,7 @@
 
 import subprocess, os, re, tempfile
 from collections import defaultdict
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from functools import reduce
 
 # local hack (TODO: remove)
@@ -51,6 +51,9 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 	for key in ['inputs', 'outputs', 'registers']:
 		results[key] = { ii[0]: BVSignal.from_yosys(*ii) for ii in results[key]}
 	results['memories'] = { ii[0]: ArraySignal.from_yosys(*ii) for ii in results['memories']}
+	results['state'] = {**results['memories'], **results['registers']}
+	results.pop('memories')
+	results.pop('registers')
 	return results
 
 
@@ -67,12 +70,11 @@ def write_smt2(filename: str, yosysy_smt2: str, cmds: List[str]):
 		print("(get-model)", file=ff)
 
 class Module:
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], registers: Dict[str,"Signal"], memories: Dict[str, "ArraySignal"]):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"]):
 		self._name = name
 		self._inputs = inputs
 		self._outputs = outputs
-		self._registers = registers
-		self._memories = memories
+		self._state = state
 	@property
 	def name(self): return self._name
 
@@ -82,8 +84,7 @@ class Module:
 			return [str(ff) for ff in fields.values()]
 		dd += ["Inputs:"] + render_fields(self._inputs) + [""]
 		dd += ["Outputs:"] + render_fields(self._outputs) + [""]
-		dd += ["Registers:"] + render_fields(self._registers) + [""]
-		dd += ["Memories:"] + render_fields(self._memories) + [""]
+		dd += ["State:"] + render_fields(self._state) + [""]
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
@@ -99,9 +100,19 @@ class Module:
 		if len(states) < 2: return []
 		return [f"(assert (|{self._name}_t| |{states[ii].name}| |{states[ii+1].name}|))" for ii in range(len(states) - 1)]
 
+	def _get_signal(self, name: str) -> Optional["Signal"]:
+		for dd in [self._inputs, self._outputs, self._state]:
+			if name in dd:
+				return dd[name]
+		return None
+
 	def get(self, name: str, state: "State") -> str:
-		assert name in self._inputs or name in self._outputs or name in self._registers, f"Unknown io/state element {name}"
-		return f"(|{self.name}_n {name}| |{state.name}|)"
+		signal = self._get_signal(name=name)
+		assert signal is not None, f"Unknown io/state element {name}"
+		if isinstance(signal, ArraySignal):
+			return f"(|{self.name}_m {name}| |{state.name}|)"
+		else:
+			return f"(|{self.name}_n {name}| |{state.name}|)"
 
 class Signal:
 	def __init__(self, name: str):
@@ -195,11 +206,17 @@ def proof_no_mem_change(regfile: Module) -> List[str]:
 	cmds += [f"(assert (not {start['i_rd_en']}))"]
 
 	# assert that memory does not change
+	use_arrays = True
+
 	cmds += ["; memory should not change across the transition"]
-	for ii in range(16*32):
-		cmds += let_eq(f'mem_{ii}_eq', start[f'memory[{ii}]'], end[f'memory[{ii}]'])
-	all_eq = reduce(lambda a, b: f"(and {a} {b})", (f'|mem_{ii}_eq|' for ii in range(16*32)))
-	cmds += [f"(define-fun |mem_eq| () Bool {all_eq})"]
+
+	if use_arrays:
+		cmds += [f"(define-fun |mem_eq| () Bool (= {start['memory']} {end['memory']}))"]
+	else:
+		for ii in range(16*32):
+			cmds += let_eq(f'mem_{ii}_eq', start[f'memory[{ii}]'], end[f'memory[{ii}]'])
+		all_eq = reduce(lambda a, b: f"(and {a} {b})", (f'|mem_{ii}_eq|' for ii in range(16*32)))
+		cmds += [f"(define-fun |mem_eq| () Bool {all_eq})"]
 	# assertions need to be negated in order to check for validity
 	cmds += [f"(assert (not |mem_eq|))"]
 
@@ -219,7 +236,6 @@ def main() -> int:
 	regfile = Module(**smt2_names)
 
 	print(regfile)
-	return 0
 
 	proof = proof_no_mem_change(regfile)
 	smt2_output = "proof.smt2"
