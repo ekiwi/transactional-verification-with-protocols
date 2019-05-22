@@ -4,6 +4,7 @@
 import subprocess, os, re, tempfile
 from collections import defaultdict
 from typing import List, Tuple, Dict
+from functools import reduce
 
 # local hack (TODO: remove)
 yosys_path = os.path.expanduser(os.path.join('~', 'd', 'yosys'))
@@ -50,6 +51,18 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 	return results
 
 
+def write_smt2(filename: str, yosysy_smt2: str, cmds: List[str]):
+	with open(filename, 'w') as ff:
+		print("(set-logic QF_AUFBV)", file=ff)
+		print("; smt script generated using yosys + a custom python script", file=ff)
+		print(file=ff)
+		print("; yosys generated:", file=ff)
+		print(yosysy_smt2, file=ff)
+		print("; custom cmds", file=ff)
+		print('\n'.join(cmds), file=ff)
+		print("(check-sat)", file=ff)
+		print("(get-model)", file=ff)
+
 class Module:
 	def __init__(self, name: str, inputs: Dict[str,int], outputs: Dict[str,int], registers: Dict[str,int]):
 		self._name = name
@@ -69,10 +82,65 @@ class Module:
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
+	@property
+	def state_t(self):
+		return f"|{self._name}_s|"
+
+	def declare_states(self, names: List[str]) -> List["State"]:
+		return [State(name, self) for name in names]
+
+	def transition(self, states: List["State"]):
+		assert all(state._mod == self for state in states)
+		if len(states) < 2: return []
+		return [f"(assert (|{self._name}_t| |{states[ii].name}| |{states[ii+1].name}|))" for ii in range(len(states) - 1)]
+
+	def get(self, name: str, state: "State") -> str:
+		assert name in self._inputs or name in self._outputs or name in self._registers, f"Unknown io/state element {name}"
+		return f"(|{self.name}_n {name}| |{state.name}|)"
+
+
+class State:
+	def __init__(self, name: str, module: Module):
+		self.name = name
+		self._mod = module
+
+	def __str__(self):
+		return f"(declare-fun |{self.name}| () {self._mod.state_t})"
+
+	def __getitem__(self, name) -> str:
+		return self._mod.get(name, self)
+
 
 
 #class RegfileSpec:
 #	def __init__(self):
+
+
+def assert_eq(e0: str, e1: str) -> List[str]:
+	return [f"(assert (= {e0} {e1}))"]
+
+def proof_no_mem_change(regfile: Module) -> List[str]:
+	cmds = []
+
+	cmds += ["; declare states"]
+	states = regfile.declare_states(['s1', 's2'])
+	cmds += [str(state) for state in states]
+	cmds += regfile.transition(states) + [""]
+
+	start, end = states[0], states[-1]
+
+	# setup assumptions
+	cmds += ["; assuming that i_rd_en is false"]
+	cmds += [f"(assert (not {start['i_rd_en']}))"]
+	cmds += [f"(assert (not {end['i_rd_en']}))"]
+
+	cmds += ["; memory should not change across the transition"]
+	for ii in range(16*32):
+		cmds += assert_eq(start[f'memory[{ii}]'], end[f'memory[{ii}]'])
+
+	return cmds
+
+
 
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
@@ -85,10 +153,13 @@ def main() -> int:
 	smt2_names = parse_yosys_smt2(smt2_src)
 	regfile = Module(**smt2_names)
 
-	print(regfile)
+	#print(regfile)
 
+	proof = proof_no_mem_change(regfile)
+	smt2_output = "proof.smt2"
+	write_smt2(filename=smt2_output, yosysy_smt2=smt2_src, cmds=proof)
 
-
+	print(f"wrote proof to {smt2_output}")
 	return 0
 
 if __name__ == '__main__':
