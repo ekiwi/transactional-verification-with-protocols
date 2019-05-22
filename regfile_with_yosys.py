@@ -18,11 +18,12 @@ def require_yosys() -> str:
 	version = re.match(r'Yosys (\d+\.\d+\+\d+)', r.stdout.decode('utf-8')).group(1)
 	return version
 
-def verilog_to_smt2(filename: str) -> str:
+def verilog_to_smt2(filename: str, arrays: bool = True) -> str:
 	assert os.path.isfile(filename)
 	with tempfile.TemporaryDirectory() as dd:
 		outfile = os.path.join(dd, "module.smt2")
-		cmds = [f"read_verilog {filename}", "proc", "opt", "memory", f"write_smt2 {outfile}"]
+		mem = "memory -nomap -nordff" if arrays else "memory"
+		cmds = [f"read_verilog {filename}", "proc", "opt", mem, f"write_smt2 {outfile}"]
 		subprocess.run(['yosys', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		with open(outfile) as ff:
 			smt2_src = ff.read()
@@ -34,6 +35,7 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 		'inputs': re.compile(r'; yosys-smt2-input ([^\s]+) ([\d+])'),
 		'outputs': re.compile(r'; yosys-smt2-output ([^\s]+) ([\d+])'),
 		'registers': re.compile(r'; yosys-smt2-register ([^\s]+) ([\d+])'),
+		'memories': re.compile(r'; yosys-smt2-memory ([^\s]+) ([\d+]) ([\d+]) ([\d+]) ([\d+]) (async|sync)'),
 		'modules': re.compile(r'; yosys-smt2-module ([^\s]+)')
 	}
 	results = defaultdict(list)
@@ -47,7 +49,8 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 	results['name'] = results['modules'][0][0]
 	results.pop('modules')
 	for key in ['inputs', 'outputs', 'registers']:
-		results[key] = {ii[0]: int(ii[1]) for ii in results[key]}
+		results[key] = { ii[0]: BVSignal.from_yosys(*ii) for ii in results[key]}
+	results['memories'] = { ii[0]: ArraySignal.from_yosys(*ii) for ii in results['memories']}
 	return results
 
 
@@ -64,21 +67,23 @@ def write_smt2(filename: str, yosysy_smt2: str, cmds: List[str]):
 		print("(get-model)", file=ff)
 
 class Module:
-	def __init__(self, name: str, inputs: Dict[str,int], outputs: Dict[str,int], registers: Dict[str,int]):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], registers: Dict[str,"Signal"], memories: Dict[str, "ArraySignal"]):
 		self._name = name
 		self._inputs = inputs
 		self._outputs = outputs
 		self._registers = registers
+		self._memories = memories
 	@property
 	def name(self): return self._name
 
 	def __str__(self):
 		dd = [self._name, '-' * len(self._name), ""]
 		def render_fields(fields)-> List[str]:
-			return [f"{name}: {'bool' if bits == 1 else bits}" for name, bits in fields.items()]
+			return [str(ff) for ff in fields.values()]
 		dd += ["Inputs:"] + render_fields(self._inputs) + [""]
 		dd += ["Outputs:"] + render_fields(self._outputs) + [""]
-		dd += ["Registers:"] + render_fields(self._registers)
+		dd += ["Registers:"] + render_fields(self._registers) + [""]
+		dd += ["Memories:"] + render_fields(self._memories) + [""]
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
@@ -98,6 +103,54 @@ class Module:
 		assert name in self._inputs or name in self._outputs or name in self._registers, f"Unknown io/state element {name}"
 		return f"(|{self.name}_n {name}| |{state.name}|)"
 
+class Signal:
+	def __init__(self, name: str):
+		self.name = name
+
+	def __str__(self):
+		return f"{self.name} : ?"
+
+class BVSignal(Signal):
+	@staticmethod
+	def from_yosys(name: str, bits: str):
+		bits = int(bits)
+		if bits == 1:
+			return BoolSignal(name=name)
+		assert bits > 1
+		return BVSignal(name=name, bits=bits)
+
+	def __init__(self, name: str, bits: int):
+		super().__init__(name=name)
+		self.bits = bits
+
+	def __str__(self):
+		return f"{self.name} : bv<{self.bits}>"
+
+class BoolSignal(Signal):
+	def __init__(self, name: str):
+		super().__init__(name=name)
+	def __str__(self):
+		return f"{self.name} : bool"
+
+# https://www.reddit.com/r/yosys/comments/39t2fl/new_support_for_memories_in_write_smt2_via_arrays/
+class ArraySignal(Signal):
+	def __init__(self, name: str, address_bits: int, data_bits: int):
+		super().__init__(name=name)
+		self.name = name
+		self.address_bits = address_bits
+		self.data_bits = data_bits
+	@staticmethod
+	def from_memory(name: str, address_bits: int, data_bits: int, read_ports: int, write_ports: int, async_read: bool):
+		assert not async_read, "asynchronous memories are not supported!"
+		return ArraySignal(name=name, address_bits=address_bits, data_bits=data_bits)
+	@staticmethod
+	def from_yosys(name: str, address_bits: str, data_bits: str, read_ports: str, write_ports: str, async_read: str):
+		return ArraySignal.from_memory(name=name, address_bits=int(address_bits), data_bits=int(data_bits),
+									   read_ports=int(read_ports), write_ports=int(write_ports),
+									   async_read=(async_read == "async"))
+	def __str__(self):
+		return f"{self.name} : bv<{self.address_bits}> -> bv<{self.data_bits}>"
+
 
 class State:
 	def __init__(self, name: str, module: Module):
@@ -112,8 +165,13 @@ class State:
 
 
 
-#class RegfileSpec:
-#	def __init__(self):
+"""
+class RegfileSpec:
+	def __init__(self):
+		self.arch_state = { f'x{ii}': 32 for ii in range(32) }
+		
+"""
+
 
 
 def assert_eq(e0: str, e1: str) -> List[str]:
@@ -160,7 +218,8 @@ def main() -> int:
 	smt2_names = parse_yosys_smt2(smt2_src)
 	regfile = Module(**smt2_names)
 
-	#print(regfile)
+	print(regfile)
+	return 0
 
 	proof = proof_no_mem_change(regfile)
 	smt2_output = "proof.smt2"
