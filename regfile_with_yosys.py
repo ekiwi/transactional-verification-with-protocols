@@ -5,6 +5,7 @@ import subprocess, os, re, tempfile
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from functools import reduce
+from pysmt.shortcuts import *
 
 # local hack (TODO: remove)
 yosys_path = os.path.expanduser(os.path.join('~', 'd', 'yosys'))
@@ -175,13 +176,46 @@ class State:
 		return self._mod.get(name, self)
 
 
+class Protocol:
+	def __init__(self, name: str):
+		self.name = name
 
-"""
+
+class Transaction:
+	def __init__(self, name: str, args: List[Signal], ret_args: List[Signal], proto: Protocol, semantics, mapping):
+		self.name = name
+		self.args = args
+		self.ret_args = ret_args
+		self.proto = proto
+		self.semantics = semantics
+
+
+
 class RegfileSpec:
 	def __init__(self):
-		self.arch_state = { f'x{ii}': 32 for ii in range(32) }
+		x = ArraySignal('x', 5, 32)
+		self.arch_state = {'x': x}
+
+		# build transaction
+		args = [
+			BVSignal('rs1_addr', 5),
+			BVSignal('rs2_addr', 5),
+			BoolSignal('rd_enable'),
+			BVSignal('rd_addr', 5),
+			BVSignal('rd_data', 32),
+		]
+		ret = [
+			BVSignal('rs1_data', 32),
+			BVSignal('rs2_data', 32),
+		]
+		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
+			rs1_data = Select(x, rs1_addr)
+			rs2_data = Select(x, rs2_addr)
+			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
+			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
+
 		
-"""
+
 
 
 
