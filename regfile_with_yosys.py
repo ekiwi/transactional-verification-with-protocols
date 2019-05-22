@@ -119,6 +119,9 @@ class State:
 def assert_eq(e0: str, e1: str) -> List[str]:
 	return [f"(assert (= {e0} {e1}))"]
 
+def let_eq(name: str, e0: str, e1: str) -> List[str]:
+	return [f"(define-fun |{name}| () Bool (= {e0} {e1}))"]
+
 def proof_no_mem_change(regfile: Module) -> List[str]:
 	cmds = []
 
@@ -132,11 +135,15 @@ def proof_no_mem_change(regfile: Module) -> List[str]:
 	# setup assumptions
 	cmds += ["; assuming that i_rd_en is false"]
 	cmds += [f"(assert (not {start['i_rd_en']}))"]
-	cmds += [f"(assert (not {end['i_rd_en']}))"]
 
+	# assert that memory does not change
 	cmds += ["; memory should not change across the transition"]
 	for ii in range(16*32):
-		cmds += assert_eq(start[f'memory[{ii}]'], end[f'memory[{ii}]'])
+		cmds += let_eq(f'mem_{ii}_eq', start[f'memory[{ii}]'], end[f'memory[{ii}]'])
+	all_eq = reduce(lambda a, b: f"(and {a} {b})", (f'|mem_{ii}_eq|' for ii in range(16*32)))
+	cmds += [f"(define-fun |mem_eq| () Bool {all_eq})"]
+	# assertions need to be negated in order to check for validity
+	cmds += [f"(assert (not |mem_eq|))"]
 
 	return cmds
 
