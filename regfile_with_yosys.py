@@ -332,6 +332,7 @@ def main() -> int:
 	write_smt2(filename=smt2_output, yosysy_smt2=smt2_src, cmds=script)
 
 	print(f"wrote proof to {smt2_output}")
+	subprocess.run(f"yices-smt2 {smt2_output}", shell=True)
 	return 0
 
 if __name__ == '__main__':
