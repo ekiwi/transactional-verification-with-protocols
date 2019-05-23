@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from functools import reduce
 from pysmt.shortcuts import *
+from pysmt.smtlib.script import SmtLibScript, smtcmd
 
 # local hack (TODO: remove)
 yosys_path = os.path.expanduser(os.path.join('~', 'd', 'yosys'))
@@ -58,7 +59,7 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 	return results
 
 
-def write_smt2(filename: str, yosysy_smt2: str, cmds: List[str]):
+def write_smt2(filename: str, yosysy_smt2: str, cmds: SmtLibScript):
 	with open(filename, 'w') as ff:
 		print("(set-logic QF_AUFBV)", file=ff)
 		print("; smt script generated using yosys + a custom python script", file=ff)
@@ -66,7 +67,7 @@ def write_smt2(filename: str, yosysy_smt2: str, cmds: List[str]):
 		print("; yosys generated:", file=ff)
 		print(yosysy_smt2, file=ff)
 		print("; custom cmds", file=ff)
-		print('\n'.join(cmds), file=ff)
+		cmds.serialize(outstream=ff, daggify=False)
 		print("(check-sat)", file=ff)
 		print("(get-model)", file=ff)
 
@@ -76,6 +77,9 @@ class Module:
 		self._inputs = inputs
 		self._outputs = outputs
 		self._state = state
+		self.state_t = Type(name + "_s")
+		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
+
 	@property
 	def name(self): return self._name
 
@@ -89,17 +93,18 @@ class Module:
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
-	@property
-	def state_t(self):
-		return f"|{self._name}_s|"
+	def declare_states(self, script: SmtLibScript, names: List[str]) -> list:
+		states = [State(name, self) for name in names]
+		for state in states:
+			script.add(smtcmd.DECLARE_FUN, [state.sym])
+		return states
 
-	def declare_states(self, names: List[str]) -> List["State"]:
-		return [State(name, self) for name in names]
-
-	def transition(self, states: List["State"]):
+	def transition(self, script: SmtLibScript, states: List["State"]):
 		assert all(state._mod == self for state in states)
-		if len(states) < 2: return []
-		return [f"(assert (|{self._name}_t| |{states[ii].name}| |{states[ii+1].name}|))" for ii in range(len(states) - 1)]
+		if len(states) < 2: return
+		for ii in range((len(states) - 1)):
+			t = Function(self._transition_fun, [states[ii].sym, states[ii+1].sym])
+			script.add(smtcmd.ASSERT, [t])
 
 	def _get_signal(self, name: str) -> Optional["Signal"]:
 		for dd in [self._inputs, self._outputs, self._state]:
@@ -107,17 +112,20 @@ class Module:
 				return dd[name]
 		return None
 
-	def get(self, name: str, state: "State") -> str:
+	def get(self, name: str, state: "State"):
 		signal = self._get_signal(name=name)
 		assert signal is not None, f"Unknown io/state element {name}"
+		ft = FunctionType(signal.tpe, [self.state_t])
 		if isinstance(signal, ArraySignal):
-			return f"(|{self.name}_m {name}| |{state.name}|)"
+			fn = self.name + "_m " + signal.name
 		else:
-			return f"(|{self.name}_n {name}| |{state.name}|)"
+			fn = self.name + "_n " + signal.name
+		return Function(Symbol(fn, ft), [state.sym])
 
 class Signal:
 	def __init__(self, name: str):
 		self.name = name
+		self.tpe = None
 
 	def __str__(self):
 		return f"{self.name} : ?"
@@ -134,6 +142,7 @@ class BVSignal(Signal):
 	def __init__(self, name: str, bits: int):
 		super().__init__(name=name)
 		self.bits = bits
+		self.tpe = BVType(bits)
 
 	def __str__(self):
 		return f"{self.name} : bv<{self.bits}>"
@@ -141,6 +150,7 @@ class BVSignal(Signal):
 class BoolSignal(Signal):
 	def __init__(self, name: str):
 		super().__init__(name=name)
+		self.tpe = BOOL
 	def __str__(self):
 		return f"{self.name} : bool"
 
@@ -151,6 +161,7 @@ class ArraySignal(Signal):
 		self.name = name
 		self.address_bits = address_bits
 		self.data_bits = data_bits
+		self.tpe = ArrayType(BVType(self.address_bits), BVType(self.data_bits))
 	@staticmethod
 	def from_memory(name: str, address_bits: int, data_bits: int, read_ports: int, write_ports: int, async_read: bool):
 		assert not async_read, "asynchronous memories are not supported!"
@@ -167,6 +178,7 @@ class ArraySignal(Signal):
 class State:
 	def __init__(self, name: str, module: Module):
 		self.name = name
+		self.sym = Symbol(name, module.state_t)
 		self._mod = module
 
 	def __str__(self):
@@ -225,38 +237,21 @@ def assert_eq(e0: str, e1: str) -> List[str]:
 def let_eq(name: str, e0: str, e1: str) -> List[str]:
 	return [f"(define-fun |{name}| () Bool (= {e0} {e1}))"]
 
-def proof_no_mem_change(regfile: Module) -> List[str]:
-	cmds = []
+def proof_no_mem_change(regfile: Module, script: SmtLibScript):
 
-	cmds += ["; declare states"]
-	states = regfile.declare_states(['s1', 's2'])
-	cmds += [str(state) for state in states]
-	cmds += regfile.transition(states) + [""]
+	states = regfile.declare_states(script, ['s1', 's2'])
+	regfile.transition(script, states)
 
 	start, end = states[0], states[-1]
 
 	# setup assumptions
-	cmds += ["; assuming that i_rd_en is false"]
-	cmds += [f"(assert (not {start['i_rd_en']}))"]
+	# assuming that i_rd_en is false
+	script.add(smtcmd.ASSERT, [Not(start['i_rd_en'])])
 
 	# assert that memory does not change
-	use_arrays = True
 
-	cmds += ["; memory should not change across the transition"]
-
-	if use_arrays:
-		cmds += [f"(define-fun |mem_eq| () Bool (= {start['memory']} {end['memory']}))"]
-	else:
-		for ii in range(16*32):
-			cmds += let_eq(f'mem_{ii}_eq', start[f'memory[{ii}]'], end[f'memory[{ii}]'])
-		all_eq = reduce(lambda a, b: f"(and {a} {b})", (f'|mem_{ii}_eq|' for ii in range(16*32)))
-		cmds += [f"(define-fun |mem_eq| () Bool {all_eq})"]
-	# assertions need to be negated in order to check for validity
-	cmds += [f"(assert (not |mem_eq|))"]
-
-	return cmds
-
-
+	# memory should not change across the transition
+	script.add(smtcmd.ASSERT, [Not(Equals(start['memory'], end['memory']))])
 
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
@@ -271,9 +266,11 @@ def main() -> int:
 
 	print(regfile)
 
-	proof = proof_no_mem_change(regfile)
+	script = SmtLibScript()
+	proof_no_mem_change(regfile, script)
 	smt2_output = "proof.smt2"
-	write_smt2(filename=smt2_output, yosysy_smt2=smt2_src, cmds=proof)
+
+	write_smt2(filename=smt2_output, yosysy_smt2=smt2_src, cmds=script)
 
 	print(f"wrote proof to {smt2_output}")
 	return 0
