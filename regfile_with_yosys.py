@@ -59,18 +59,60 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 	results.pop('registers')
 	return results
 
+sat = "sat"
+unsat = "unsat"
 
-def write_smt2(filename: str, yosysy_smt2: str, cmds: SmtLibScript):
-	with open(filename, 'w') as ff:
-		print("(set-logic QF_AUFBV)", file=ff)
-		print("; smt script generated using yosys + a custom python script", file=ff)
-		print(file=ff)
-		print("; yosys generated:", file=ff)
-		print(yosysy_smt2, file=ff)
-		print("; custom cmds", file=ff)
-		cmds.serialize(outstream=ff, daggify=False)
-		print("(check-sat)", file=ff)
-		print("(get-model)", file=ff)
+class Solver:
+	def __init__(self, header, logic='QF_AUFBV', bin='yices-smt2'):
+		self.header = header
+		self.logic = logic
+		self.bin = bin
+		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
+		self.assertions = []
+		self.funs = []
+
+	def add(self, *assertions):
+		self.assertions += assertions
+
+	def fun(self, function):
+		self.funs.append(function)
+
+	def _write_scrip(self, filename, script, get_model=False):
+		with open(filename, 'w') as ff:
+			print("(set-logic QF_AUFBV)", file=ff)
+			print("; smt script generated using yosys + a custom python script", file=ff)
+			print(file=ff)
+			print("; yosys generated:", file=ff)
+			print(self.header, file=ff)
+			print("; custom cmds", file=ff)
+			script.serialize(outstream=ff, daggify=False)
+			print("(check-sat)", file=ff)
+			if get_model:
+				print("(get-model)", file=ff)
+
+	def solve(self, filename=None, get_model=True):
+		script = SmtLibScript()
+		for f in self.funs:
+			script.add(smtcmd.DECLARE_FUN, [f])
+		for a in self.assertions:
+			script.add(smtcmd.ASSERT, [a])
+
+		if filename is None:
+			(_, filename) = tempfile.mkstemp()
+
+		self._write_scrip(filename=filename, script=script, get_model=False)
+		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8').strip()
+		if r == unsat:
+			return unsat, None
+		assert r == sat, r
+
+
+		if not get_model:
+			return sat, None
+		# get model
+		self._write_scrip(filename=filename, script=script, get_model=True)
+		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8')
+		return sat, r
 
 class Module:
 	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"]):
@@ -94,18 +136,17 @@ class Module:
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
-	def declare_states(self, script: SmtLibScript, names: List[str]) -> list:
+	def declare_states(self, solver: Solver, names: List[str]) -> list:
 		states = [State(name, self) for name in names]
 		for state in states:
-			script.add(smtcmd.DECLARE_FUN, [state.sym])
+			solver.fun(state.sym)
 		return states
 
-	def transition(self, script: SmtLibScript, states: List["State"]):
+	def transition(self, solver: Solver, states: List["State"]):
 		assert all(state._mod == self for state in states)
 		if len(states) < 2: return
 		for ii in range((len(states) - 1)):
-			t = Function(self._transition_fun, [states[ii].sym, states[ii+1].sym])
-			script.add(smtcmd.ASSERT, [t])
+			solver.add(Function(self._transition_fun, [states[ii].sym, states[ii+1].sym]))
 
 	def _get_signal(self, name: str) -> Optional["Signal"]:
 		for dd in [self._inputs, self._outputs, self._state]:
@@ -290,18 +331,18 @@ class RegfileSpec(Spec):
 
 
 
-def proof_no_mem_change(regfile: Module, script: SmtLibScript):
-	states = regfile.declare_states(script, ['s1', 's2'])
-	regfile.transition(script, states)
+def proof_no_mem_change(regfile: Module, solver: Solver):
+	states = regfile.declare_states(solver, ['s1', 's2'])
+	regfile.transition(solver, states)
 
 	start, end = states[0], states[-1]
 
 	# setup assumptions
 	# assuming that i_rd_en is false
-	script.add(smtcmd.ASSERT, [Not(start['i_rd_en'])])
+	solver.add(Not(start['i_rd_en']))
 
 	# assert that memory does not change
-	script.add(smtcmd.ASSERT, [Not(Equals(start['memory'], end['memory']))])
+	solver.add(Not(Equals(start['memory'], end['memory'])))
 
 
 class ProofEngine:
@@ -309,8 +350,12 @@ class ProofEngine:
 		self.mod = mod
 		self.spec = spec
 
+	def reset(self):
+		pass
+
 	def proof_invariances(self):
-		raise RuntimeError("TODO")
+		# 1) check that invariance holds after reset
+		pass
 
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
@@ -325,14 +370,10 @@ def main() -> int:
 
 	print(regfile)
 
-	script = SmtLibScript()
-	proof_no_mem_change(regfile, script)
-	smt2_output = "proof.smt2"
+	solver = Solver(smt2_src)
+	proof_no_mem_change(regfile, solver)
+	print(solver.solve())
 
-	write_smt2(filename=smt2_output, yosysy_smt2=smt2_src, cmds=script)
-
-	print(f"wrote proof to {smt2_output}")
-	subprocess.run(f"yices-smt2 {smt2_output}", shell=True)
 	return 0
 
 if __name__ == '__main__':
