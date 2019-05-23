@@ -208,6 +208,19 @@ class RegfileSpec:
 		x = ArraySignal('x', 5, 32)
 		self.arch_state = {'x': x}
 
+		def mapping(state: State, x):
+			asserts = []
+			memory = state['memory']
+			for ii in range(32):
+				reg = Select(x, BV(ii, 5))
+				for jj in range(16):
+					a = Select(memory, BV(ii*16 + jj, 9))
+					b = BVExtract(reg, start=jj*2, end=jj*2+1)
+					asserts.append(Equals(a, b))
+			return asserts
+		self.mapping = mapping
+
+
 		# build transaction
 		args = [
 			BVSignal('rs1_addr', 5),
@@ -226,16 +239,12 @@ class RegfileSpec:
 			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
-		
+
+
+		self.transactions = Transaction(name="rw", args=args, ret_args=ret, semantics=semantics)
 
 
 
-
-def assert_eq(e0: str, e1: str) -> List[str]:
-	return [f"(assert (= {e0} {e1}))"]
-
-def let_eq(name: str, e0: str, e1: str) -> List[str]:
-	return [f"(define-fun |{name}| () Bool (= {e0} {e1}))"]
 
 def proof_no_mem_change(regfile: Module, script: SmtLibScript):
 
