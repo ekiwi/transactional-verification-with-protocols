@@ -285,7 +285,6 @@ class RegfileSpec:
 
 
 def proof_no_mem_change(regfile: Module, script: SmtLibScript):
-
 	states = regfile.declare_states(script, ['s1', 's2'])
 	regfile.transition(script, states)
 
@@ -296,8 +295,6 @@ def proof_no_mem_change(regfile: Module, script: SmtLibScript):
 	script.add(smtcmd.ASSERT, [Not(start['i_rd_en'])])
 
 	# assert that memory does not change
-
-	# memory should not change across the transition
 	script.add(smtcmd.ASSERT, [Not(Equals(start['memory'], end['memory']))])
 
 
