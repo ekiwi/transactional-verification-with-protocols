@@ -233,10 +233,17 @@ class Transaction:
 
 
 
-class RegfileSpec:
+class Spec:
+	def __init__(self, arch_state, mapping, transactions, idle, invariances):
+		self.arch_state = arch_state
+		self.transactions = transactions
+		self.idle = idle
+		self.invariances = invariances
+		self.mapping = mapping
+
+class RegfileSpec(Spec):
 	def __init__(self):
 		x = ArraySignal('x', 5, 32)
-		self.arch_state = {'x': x}
 
 		def mapping(state: State, x):
 			asserts = []
@@ -248,8 +255,6 @@ class RegfileSpec:
 					b = BVExtract(reg, start=jj*2, end=jj*2+1)
 					asserts.append(Equals(a, b))
 			return asserts
-		self.mapping = mapping
-
 
 		# build transaction
 		rs1_addr = BVSignal('rs1_addr', 5)
@@ -274,12 +279,13 @@ class RegfileSpec:
 			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
-		self.transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
+		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
-		self.idle = {'i_go': 0, 'i_rd_en': 0}
+		idle = {'i_go': 0, 'i_rd_en': 0}
 
 		# TODO: infer
-		self.invariances = {'wcnt': 0}
+		inv = {'wcnt': 0}
+		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv)
 
 
 
@@ -296,6 +302,15 @@ def proof_no_mem_change(regfile: Module, script: SmtLibScript):
 
 	# assert that memory does not change
 	script.add(smtcmd.ASSERT, [Not(Equals(start['memory'], end['memory']))])
+
+
+class ProofEngine:
+	def __init__(self, mod: Module, spec: Spec):
+		self.mod = mod
+		self.spec = spec
+
+	def proof_invariances(self):
+		raise RuntimeError("TODO")
 
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
