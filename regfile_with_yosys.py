@@ -5,6 +5,7 @@ import subprocess, os, re, tempfile
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from functools import reduce
+from itertools import zip_longest
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import SmtLibScript, smtcmd
 
@@ -151,6 +152,7 @@ class BoolSignal(Signal):
 	def __init__(self, name: str):
 		super().__init__(name=name)
 		self.tpe = BOOL
+		self.bits = 1
 	def __str__(self):
 		return f"{self.name} : bool"
 
@@ -188,10 +190,38 @@ class State:
 		return self._mod.get(name, self)
 
 
-class Protocol:
-	def __init__(self, name: str):
-		self.name = name
+def merge_dicts(a: dict, b: dict) -> dict:
+	keys = a.keys() | b.keys()
+	if len(keys) < len(a) + len(b):
+		for k in keys:
+			assert not (k in a and k in b), f"Key {k} is used in a and b!"
+	return {**a, **b}
 
+class Protocol:
+	def __init__(self, mappings):
+		self.mappings = mappings
+
+	def __len__(self):
+		return len(self.mappings)
+
+	def __or__(self, other):
+		assert isinstance(other, Protocol)
+		m = [merge_dicts(*c) for c in zip_longest(self.mappings, other.mappings, fillvalue=dict())]
+		return Protocol(mappings=m)
+
+	def __add__(self, other):
+		assert isinstance(other, Protocol)
+		m = self.mappings + other.mappings
+		return Protocol(mappings=m)
+
+def BitSerial(signal: str, sym: Signal) -> Protocol:
+	return Protocol([{signal: BVExtract(sym, ii, ii)} for ii in range(sym.bits)])
+
+def Repeat(signal: str, sym: Signal, cycles) -> Protocol:
+	return Protocol([{signal: sym}] * cycles)
+
+def Map(signal:str, sym: Signal) -> Protocol:
+	return Protocol([{signal: sym}])
 
 class Transaction:
 	def __init__(self, name: str, args: List[Signal], ret_args: List[Signal], proto: Protocol, semantics, mapping):
@@ -222,26 +252,34 @@ class RegfileSpec:
 
 
 		# build transaction
-		args = [
-			BVSignal('rs1_addr', 5),
-			BVSignal('rs2_addr', 5),
-			BoolSignal('rd_enable'),
-			BVSignal('rd_addr', 5),
-			BVSignal('rd_data', 32),
-		]
-		ret = [
-			BVSignal('rs1_data', 32),
-			BVSignal('rs2_data', 32),
-		]
+		rs1_addr = BVSignal('rs1_addr', 5)
+		rs2_addr = BVSignal('rs2_addr', 5)
+		rd_enable = BoolSignal('rd_enable')
+		rd_addr = BVSignal('rd_addr', 5)
+		rd_data = BVSignal('rd_data', 32)
+		args = [rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data]
+		rs1_data = BVSignal('rs1_data', 32)
+		rs2_data = BVSignal('rs2_data', 32)
+		ret = [rs1_data, rs2_data]
+
+		protocol = (Map('i_go', 1) +
+			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
+		            Repeat('i_go', 0, 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
+		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
+
+
 		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
 			rs1_data = Select(x, rs1_addr)
 			rs2_data = Select(x, rs2_addr)
 			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
+		self.transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
+		self.idle = {'i_go': 0, 'i_rd_en': 0}
 
-		self.transactions = Transaction(name="rw", args=args, ret_args=ret, semantics=semantics)
+		# TODO: infer
+		self.invariances = {'wcnt': 0}
 
 
 
