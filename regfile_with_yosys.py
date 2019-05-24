@@ -385,6 +385,8 @@ class ProofEngine:
 	def idle(self):
 		s0, s1 = self.unroll(1)
 		self.solver.add(self.spec.idle(s0))
+		if self.mod.reset is not None:
+			self.solver.add(Not(s0[self.mod.reset]))
 		return s0, s1
 
 	def transaction(self, trans: Transaction, assume_invariances=False, skip_reads=False):
@@ -608,20 +610,19 @@ def main() -> int:
 	print(solver.solve())
 	"""
 
-	if False:
-		spec = RegfileSpec()
-		mod = regfile
-	else:
-		spec = AdderSpec(2)
-		mod = adder
+	mods = [(adder, lambda: AdderSpec(32)), (regfile, RegfileSpec)]
 
-
-	print(f"Trying to proof {mod.name}")
-	print(mod)
-	solver = Solver(mod.smt2_src)
-	engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir=".")
-	#engine.proof_invariances()
-	engine.proof_all()
+	for mod, spec_fun in mods:
+		reset_env()
+		spec = spec_fun()
+		print(f"Trying to proof {mod.name}")
+		print(mod)
+		solver = Solver(mod.smt2_src)
+		engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir=".")
+		#engine.proof_invariances()
+		engine.proof_all()
+		print()
+		print()
 
 	return 0
 
