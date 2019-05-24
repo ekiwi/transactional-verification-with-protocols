@@ -130,6 +130,13 @@ class Module:
 	@property
 	def name(self): return self._name
 
+	def is_input(self, name: str):
+		return name in self._inputs
+	def is_output(self, name: str):
+		return name in self._outputs
+	def is_state(self, name: str):
+		return name in self._state
+
 	def __str__(self):
 		dd = [self._name, '-' * len(self._name), ""]
 		def render_fields(fields)-> List[str]:
@@ -269,7 +276,7 @@ def Map(signal:str, sym) -> Protocol:
 	return Protocol([{signal: sym}])
 
 class Transaction:
-	def __init__(self, name: str, args: List[Signal], ret_args: List[Signal], proto: Protocol, semantics):
+	def __init__(self, name: str, args: list, ret_args: list, proto: Protocol, semantics):
 		self.name = name
 		self.args = args
 		self.ret_args = ret_args
@@ -301,8 +308,38 @@ def proof_no_mem_change(regfile: Module, solver: Solver):
 	solver.add(Not(Equals(start['memory'], end['memory'])))
 
 
+def get_type(expr):
+	if expr.is_symbol(): return expr.symbol_type()
+	if expr.is_function_application():
+		return expr.function_name().symbol_type().return_type
+	if expr.is_select():
+		return expr.arg(0).get_type().elem_type
+	assert False, f"should not get here! {expr}"
+
 def is_bool(expr):
-	return expr.is_bool_constant() or expr.is_bool_op() or (expr.is_symbol() and expr.symbol_type().is_bool_type())
+	if expr.is_bool_constant() or expr.is_bool_op(): return True
+	if expr.is_bv_op(): return False
+	if expr.is_symbol(): return expr.symbol_type().is_bool_type()
+	if expr.is_function_application():
+		return expr.function_name().symbol_type().return_type.is_bool_type()
+	if expr.is_select():
+		return expr.arg(0).get_type().elem_type.is_bool_type()
+	if expr.is_ite():
+		return is_bool(expr.arg(1))
+	if expr.is_store() or expr.is_array_value():
+		return False
+	assert False, f"should not get here! {expr}"
+
+def to_bool(expr):
+	assert not is_bool(expr)
+	assert expr.bv_width() == 1
+	return  Equals(expr, BV(1, 1))
+
+def equal(e0, e1):
+	if not is_bool(e0) and not is_bool(e1): return Equals(e0, e1)
+	if not is_bool(e0): e0 = to_bool(e0)
+	if not is_bool(e1): e1 = to_bool(e1)
+	return Iff(e0, e1)
 
 class ProofEngine:
 	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str, outdir=None):
@@ -333,7 +370,7 @@ class ProofEngine:
 		self.solver.add(self.spec.idle(s0))
 		return s0, s1
 
-	def transaction(self, trans: Transaction, assume_invariances=False):
+	def transaction(self, trans: Transaction, assume_invariances=False, skip_reads=False):
 		# unroll for complete transaction
 		states = self.unroll(len(trans.proto))
 		start, end = states[0], states[-1]
@@ -348,20 +385,33 @@ class ProofEngine:
 			self.solver.fun(arg)
 
 		# apply cycle behavior
+		cycles = []
 		for m, state in zip(trans.proto.mappings, states):
+			reads = {}
 			for signal_name, expr in m.items():
+				assert not self.mod.is_state(signal_name), f"protocols may only read/write from io: {signal_name}"
 				signal = state[signal_name]
-				if is_bool(expr):
-					self.solver.add(Iff(signal, expr))
+
+				if self.mod.is_output(signal_name):
+					if not skip_reads:
+						# if the signal is an output, we need to read it
+						read_sym = Symbol(f"{signal_name}_cyc{len(cycles)}_read", get_type(signal))
+						self.solver.fun(read_sym)
+						self.solver.add(equal(signal, read_sym))
+						reads[signal_name] = read_sym
 				else:
-					if expr.bv_width() == 1:
-						expr = Equals(expr, BV(1, 1))
-						self.solver.add(Iff(signal, expr))
-					else:
-						self.solver.add(Equals(signal, expr))
+					# if the signal is an input, we just apply the constraint for this cycle
+					assert self.mod.is_input(signal_name)
+					self.solver.add(equal(signal, expr))
+			# remember all read symbols
+			cycles.append(reads)
 
 		# return first and last state
-		return start, end
+		return start, end, cycles
+
+	def proof_all(self):
+		self.proof_invariances()
+		self.proof_transactions()
 
 	def proof_invariances(self):
 		# TODO: take invariance dependence into account
@@ -384,11 +434,50 @@ class ProofEngine:
 
 		for trans in self.spec.transactions:
 			with Proof(f"invariance is inductive over {trans.name} transaction", self):
-				start, end = self.transaction(trans=trans, assume_invariances=False)
+				start, end, _ = self.transaction(trans=trans, assume_invariances=False, skip_reads=True)
 				# assume this particular invariance
 				self.solver.add(invariance(start))
 				# invariance should hold after transaction
 				self.solver.add(Not(invariance(start)))
+
+	def proof_transactions(self):
+		for trans in self.spec.transactions:
+			self.proof_transaction(trans)
+
+	def map_arch_state(self, suffix: str, state: State):
+		arch_state = {name: Symbol(name + suffix, tpe) for name, tpe in self.spec.arch_state.items()}
+		for sym in arch_state.values():
+			self.solver.fun(sym)
+		self.solver.add(self.spec.mapping(state=state, **arch_state))
+		return arch_state
+
+	def proof_transaction(self, trans: Transaction):
+		with Proof(f"transaction {trans.name} is correct", self):
+			start, end, reads = self.transaction(trans=trans, assume_invariances=True)
+			# declare return args
+			arch_outs = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
+			for sym in trans.ret_args + list(arch_outs.values()):
+				self.solver.fun(sym)
+			# declare and map start/end arch state
+			start_arch = self.map_arch_state("", start)
+			end_arch = self.map_arch_state("_read", end)
+			# semantics
+			sem_out = trans.semantics(**{arg.symbol_name(): arg for arg in trans.args}, **start_arch)
+			# map outputs
+			for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
+				self.solver.add(equal(expr, sem_out[name]))
+			# verify reads
+			vc = []
+			for ii, m in enumerate(trans.proto.mappings):
+				for signal_name, expr in m.items():
+					if not self.mod.is_input(signal_name): continue
+					read = reads[ii][signal_name]
+					vc.append(equal(read, expr))
+			# verify arch
+			for name in self.spec.arch_state.keys():
+				vc.append(Equals(arch_outs[name], end_arch[name]))
+			# check validity
+			self.solver.add(Not(And(*vc)))
 
 class Proof:
 	def __init__(self, name: str, engine: ProofEngine):
@@ -415,7 +504,7 @@ class Proof:
 
 class RegfileSpec(Spec):
 	def __init__(self):
-		x = ArraySignal('x', 5, 32)
+		x = ArrayType(BVType(5), BVType(32)) #ArraySignal('x', 5, 32)
 
 		def mapping(state: State, x):
 			asserts = []
@@ -481,7 +570,8 @@ def main() -> int:
 	spec = RegfileSpec()
 	solver = Solver(smt2_src)
 	engine = ProofEngine(mod=regfile,spec=spec, solver=solver, reset_signal='i_rst', outdir=".")
-	engine.proof_invariances()
+	#engine.proof_invariances()
+	engine.proof_all()
 
 	return 0
 
