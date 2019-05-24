@@ -535,7 +535,7 @@ class RegfileSpec(Spec):
 			memory = state['memory']
 			for ii in range(32):
 				reg = Select(x, BV(ii, 5))
-				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in range(16)]
+				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
 				asserts.append(Equals(reg, reduce(BVConcat, iis)))
 				# for jj in range(16):
 				# 	a = Select(memory, BV(ii*16 + jj, 9))
