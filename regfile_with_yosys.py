@@ -286,54 +286,6 @@ class Spec:
 		self.invariances = invariances
 		self.mapping = mapping
 
-class RegfileSpec(Spec):
-	def __init__(self):
-		x = ArraySignal('x', 5, 32)
-
-		def mapping(state: State, x):
-			asserts = []
-			memory = state['memory']
-			for ii in range(32):
-				reg = Select(x, BV(ii, 5))
-				for jj in range(16):
-					a = Select(memory, BV(ii*16 + jj, 9))
-					b = BVExtract(reg, start=jj*2, end=jj*2+1)
-					asserts.append(Equals(a, b))
-			return asserts
-
-		# build transaction
-		rs1_addr = Symbol('rs1_addr', BVType(5))
-		rs2_addr = Symbol('rs2_addr', BVType(5))
-		rd_enable = Symbol('rd_enable')
-		rd_addr = Symbol('rd_addr', BVType(5))
-		rd_data = Symbol('rd_data', BVType(32))
-		args = [rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data]
-		rs1_data = Symbol('rs1_data', BVType(32))
-		rs2_data = Symbol('rs2_data', BVType(32))
-		ret = [rs1_data, rs2_data]
-
-		protocol = (Map('i_go', Bool(True)) +
-			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
-		            Repeat('i_go', Bool(False), 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
-		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
-
-
-		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
-			rs1_data = Select(x, rs1_addr)
-			rs2_data = Select(x, rs2_addr)
-			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
-			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
-
-		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
-
-		idle = lambda state: And(Not(state['i_go']), Not(state['i_rd_en']))
-
-		# TODO: infer
-		inv = [lambda state: Equals(state['wcnt'], BV(0, 5))]
-		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv)
-
-
-
 
 def proof_no_mem_change(regfile: Module, solver: Solver):
 	states = regfile.declare_states(solver, ['s1', 's2'])
@@ -456,6 +408,57 @@ class Proof:
 		assert res == unsat, f"❌ Failed to proof: {self.name}\nCEX:\n{model}"
 		if self.engine.verbose:
 			print(f"✔️ {self.name}")
+
+########################################################################################################################
+# Regfile Specific Code
+########################################################################################################################
+
+class RegfileSpec(Spec):
+	def __init__(self):
+		x = ArraySignal('x', 5, 32)
+
+		def mapping(state: State, x):
+			asserts = []
+			memory = state['memory']
+			for ii in range(32):
+				reg = Select(x, BV(ii, 5))
+				for jj in range(16):
+					a = Select(memory, BV(ii*16 + jj, 9))
+					b = BVExtract(reg, start=jj*2, end=jj*2+1)
+					asserts.append(Equals(a, b))
+			return asserts
+
+		# build transaction
+		rs1_addr = Symbol('rs1_addr', BVType(5))
+		rs2_addr = Symbol('rs2_addr', BVType(5))
+		rd_enable = Symbol('rd_enable')
+		rd_addr = Symbol('rd_addr', BVType(5))
+		rd_data = Symbol('rd_data', BVType(32))
+		args = [rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data]
+		rs1_data = Symbol('rs1_data', BVType(32))
+		rs2_data = Symbol('rs2_data', BVType(32))
+		ret = [rs1_data, rs2_data]
+
+		protocol = (Map('i_go', Bool(True)) +
+			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
+		            Repeat('i_go', Bool(False), 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
+		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
+
+
+		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
+			rs1_data = Select(x, rs1_addr)
+			rs2_data = Select(x, rs2_addr)
+			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
+			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
+
+		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
+
+		idle = lambda state: And(Not(state['i_go']), Not(state['i_rd_en']))
+
+		# TODO: infer
+		inv = [lambda state: Equals(state['wcnt'], BV(0, 5))]
+		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv)
+
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
 
