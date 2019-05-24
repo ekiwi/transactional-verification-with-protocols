@@ -5,7 +5,7 @@ import subprocess, os, re, tempfile
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from functools import reduce
-from itertools import zip_longest
+from itertools import zip_longest, chain
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import SmtLibScript, smtcmd
 
@@ -81,7 +81,7 @@ class Solver:
 	def fun(self, function):
 		self.funs.append(function)
 
-	def _write_scrip(self, filename, script, get_model=False):
+	def _write_scrip(self, filename, script):
 		with open(filename, 'w') as ff:
 			print("(set-logic QF_AUFBV)", file=ff)
 			print("; smt script generated using yosys + a custom python script", file=ff)
@@ -90,21 +90,19 @@ class Solver:
 			print(self.header, file=ff)
 			print("; custom cmds", file=ff)
 			script.serialize(outstream=ff, daggify=False)
-			print("(check-sat)", file=ff)
-			if get_model:
-				print("(get-model)", file=ff)
 
-	def solve(self, filename=None, get_model=True):
+	def solve(self, filename=None, get_model=True, get_values=None):
 		script = SmtLibScript()
 		for f in self.funs:
 			script.add(smtcmd.DECLARE_FUN, [f])
 		for a in self.assertions:
 			script.add(smtcmd.ASSERT, [a])
+		script.add(smtcmd.CHECK_SAT, [])
 
 		if filename is None:
 			(_, filename) = tempfile.mkstemp()
 
-		self._write_scrip(filename=filename, script=script, get_model=False)
+		self._write_scrip(filename=filename, script=script)
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8').strip()
 		if r == unsat:
 			return unsat, None
@@ -114,7 +112,12 @@ class Solver:
 		if not get_model:
 			return sat, None
 		# get model
-		self._write_scrip(filename=filename, script=script, get_model=True)
+		if get_values is None:
+			script.add(smtcmd.GET_MODEL, [])
+		else:
+			for vv in get_values:
+				script.add(smtcmd.GET_VALUE, [vv])
+		self._write_scrip(filename=filename, script=script)
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8')
 		return sat, r
 
@@ -145,6 +148,15 @@ class Module:
 		return name in self._outputs
 	def is_state(self, name: str):
 		return name in self._state
+	@property
+	def inputs(self):
+		return self._inputs.values()
+	@property
+	def outputs(self):
+		return self._outputs.values()
+	@property
+	def state(self):
+		return self._state.values()
 
 	def __str__(self):
 		dd = [self._name, '-' * len(self._name), ""]
@@ -368,15 +380,28 @@ class ProofEngine:
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 		self.proof_count = 0
+		self.states = []
+		self.active_proof = None
+
+	def _read_all_signals(self, states):
+		regs = [s for s in self.mod.state if not isinstance(s, ArraySignal)]
+		signals = list(self.mod.inputs) + list(self.mod.outputs) + regs
+		expressions = []
+		for state in states:
+			for sig in signals:
+				expressions.append(state[sig.name])
+		return expressions
 
 	def unroll(self, cycles):
 		states = self.mod.declare_states(self.solver, [f's{ii}' for ii in range(cycles+1)])
+		self.states += states
 		self.mod.transition(self.solver, states)
 		return states
 
 	def reset(self, cycles=1):
 		assert self.mod.reset is not None, f"Module {self.mod.name} does not have a reset signal declared!"
 		states = self.unroll(cycles)
+		self.states += states
 		# assert reset signal for N cycles
 		for s in states[:-1]:
 			self.solver.add(s[self.mod.reset])
@@ -384,6 +409,7 @@ class ProofEngine:
 
 	def idle(self):
 		s0, s1 = self.unroll(1)
+		self.states += [s0, s1]
 		self.solver.add(self.spec.idle(s0))
 		if self.mod.reset is not None:
 			self.solver.add(Not(s0[self.mod.reset]))
@@ -503,24 +529,66 @@ class ProofEngine:
 			# check validity
 			self.solver.add(Not(conjunction(*vc)))
 
+	def start_proof(self, name: str):
+		ii = self.proof_count
+		self.proof_count += 1
+		self.active_proof = name
+		self.solver.reset()
+		self.states = []
+		return ii
+
+	def parse_cex(self, cex: str, states: List[State]):
+		state_to_id = {st.name: ii for ii, st in enumerate(states)}
+		out = [dict()] * len(states)
+
+		prefix = rf'\(\(\(\|{self.mod.name}_n ([a-zA-Z_0-9]+)\|\s+([a-zA-Z_0-9]+)\)\s+'
+		suffix = r'\)\)'
+		re_line = re.compile(prefix + '(#b[01]+|false|true)' + suffix)
+
+		def parse_value(vv):
+			if vv == 'true': return "1"
+			if vv == 'false': return "0"
+			assert len(vv) > 2
+			return vv[2:]
+
+		for line in cex.splitlines():
+			if line.strip() == 'sat': continue
+			m = re_line.match(line)
+			assert m is not None, f"Failed to parse line: {line}"
+			signal, state, value = m.groups()
+			out[state_to_id[state]][signal] = parse_value(value)
+		return out
+
+	def run_proof(self, name: str):
+		assert self.active_proof == name
+		if self.outdir is not None:
+			filename = os.path.join(self.outdir, f"{self.proof_count - 1}.{name}.smt2")
+		else:
+			filename = None
+		if len(self.states) > 0:
+			read = self._read_all_signals(self.states)
+		else:
+			read = None
+		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read)
+		if res == sat and read is not None:
+			model = self.parse_cex(model, self.states)
+		assert res == unsat, f"❌ Failed to proof: {name}\nCEX:\n{model}"
+		if self.verbose:
+			print(f"✔️ {name}")
+		self.active_proof = None
+
+
 class Proof:
 	def __init__(self, name: str, engine: ProofEngine):
 		self.engine = engine
 		self.name = name
-		self.ii = self.engine.proof_count
-		self.engine.proof_count += 1
+		self.ii = None
 	def __enter__(self):
-		self.engine.solver.reset()
+		self.ii = self.engine.start_proof(self.name)
+		return self
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		if exc_type is not None: return
-		if self.engine.outdir is not None:
-			filename = os.path.join(self.engine.outdir, f"{self.ii}.{self.name}.smt2")
-		else:
-			filename = None
-		res, model = self.engine.solver.solve(filename =filename)
-		assert res == unsat, f"❌ Failed to proof: {self.name}\nCEX:\n{model}"
-		if self.engine.verbose:
-			print(f"✔️ {self.name}")
+		self.engine.run_proof(self.name)
 
 ########################################################################################################################
 # Regfile Specific Code
