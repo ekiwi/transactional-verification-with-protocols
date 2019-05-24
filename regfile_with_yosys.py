@@ -341,6 +341,11 @@ def equal(e0, e1):
 	if not is_bool(e1): e1 = to_bool(e1)
 	return Iff(e0, e1)
 
+def conjunction(*args):
+	assert len(args) > 0
+	if len(args) == 1: return args[0]
+	else: return reduce(And, args)
+
 class ProofEngine:
 	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str, outdir=None):
 		self.mod = mod
@@ -381,7 +386,7 @@ class ProofEngine:
 				self.solver.add(inv(start))
 
 		# declare transaction args
-		for arg in trans.args + trans.ret_args:
+		for arg in trans.args:
 			self.solver.fun(arg)
 
 		# apply cycle behavior
@@ -448,7 +453,7 @@ class ProofEngine:
 		arch_state = {name: Symbol(name + suffix, tpe) for name, tpe in self.spec.arch_state.items()}
 		for sym in arch_state.values():
 			self.solver.fun(sym)
-		self.solver.add(self.spec.mapping(state=state, **arch_state))
+		self.solver.add(conjunction(*self.spec.mapping(state=state, **arch_state)))
 		return arch_state
 
 	def proof_transaction(self, trans: Transaction):
@@ -470,14 +475,14 @@ class ProofEngine:
 			vc = []
 			for ii, m in enumerate(trans.proto.mappings):
 				for signal_name, expr in m.items():
-					if not self.mod.is_input(signal_name): continue
+					if not self.mod.is_output(signal_name): continue
 					read = reads[ii][signal_name]
 					vc.append(equal(read, expr))
 			# verify arch
 			for name in self.spec.arch_state.keys():
 				vc.append(Equals(arch_outs[name], end_arch[name]))
 			# check validity
-			self.solver.add(Not(And(*vc)))
+			self.solver.add(Not(conjunction(*vc)))
 
 class Proof:
 	def __init__(self, name: str, engine: ProofEngine):
