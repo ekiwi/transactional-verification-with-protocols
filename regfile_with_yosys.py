@@ -535,10 +535,12 @@ class RegfileSpec(Spec):
 			memory = state['memory']
 			for ii in range(32):
 				reg = Select(x, BV(ii, 5))
-				for jj in range(16):
-					a = Select(memory, BV(ii*16 + jj, 9))
-					b = BVExtract(reg, start=jj*2, end=jj*2+1)
-					asserts.append(Equals(a, b))
+				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in range(16)]
+				asserts.append(Equals(reg, reduce(BVConcat, iis)))
+				# for jj in range(16):
+				# 	a = Select(memory, BV(ii*16 + jj, 9))
+				# 	b = BVExtract(reg, start=jj*2, end=jj*2+1)
+				# 	asserts.append(Equals(a, b))
 			return asserts
 
 		# build transaction
@@ -552,7 +554,7 @@ class RegfileSpec(Spec):
 		rs2_data = Symbol('rs2_data', BVType(32))
 		ret = [rs1_data, rs2_data]
 
-		protocol = (Map('i_go', Bool(True)) + Map('i_go', Bool(False)) +
+		protocol = (Map('i_go', Bool(True)) +  Map('i_go', Bool(False)) + Map('i_go', Bool(False)) +
 			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
 		            Repeat('i_go', Bool(False), 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
 		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
