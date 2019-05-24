@@ -120,13 +120,13 @@ class Solver:
 
 class Module:
 	@staticmethod
-	def load(verilog_file: str):
+	def load(verilog_file: str, reset:Optional[str] = None):
 		assert os.path.isfile(verilog_file)
 		smt2_src = verilog_to_smt2(verilog_file)
 		smt2_names = parse_yosys_smt2(smt2_src)
-		return Module(**smt2_names, smt2_src=smt2_src)
+		return Module(**smt2_names, smt2_src=smt2_src, reset=reset)
 
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], smt2_src: str):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], smt2_src: str, reset: Optional[str] = None):
 		self._name = name
 		self._inputs = inputs
 		self._outputs = outputs
@@ -134,6 +134,7 @@ class Module:
 		self.state_t = Type(name + "_s")
 		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
 		self.smt2_src = smt2_src
+		self.reset = reset
 
 	@property
 	def name(self): return self._name
@@ -358,11 +359,10 @@ def conjunction(*args):
 	else: return reduce(And, args)
 
 class ProofEngine:
-	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str, outdir=None):
+	def __init__(self, mod: Module, spec: Spec, solver: Solver, outdir=None):
 		self.mod = mod
 		self.spec = spec
 		self.solver = solver
-		self.reset_signal = reset_signal # TODO: move this info to Module class
 		self.verbose = True
 		self.outdir = outdir
 		if self.outdir is not None:
@@ -375,10 +375,11 @@ class ProofEngine:
 		return states
 
 	def reset(self, cycles=1):
+		assert self.mod.reset is not None, f"Module {self.mod.name} does not have a reset signal declared!"
 		states = self.unroll(cycles)
 		# assert reset signal for N cycles
 		for s in states[:-1]:
-			self.solver.add(s[self.reset_signal])
+			self.solver.add(s[self.mod.reset])
 		return states
 
 	def idle(self):
@@ -395,6 +396,11 @@ class ProofEngine:
 		if assume_invariances:
 			for inv in self.spec.invariances:
 				self.solver.add(inv(start))
+
+		# assume reset is inactive during the transaction
+		if self.mod.reset is not None:
+			for state in states:
+				self.solver.add(Not(state[self.mod.reset]))
 
 		# declare transaction args
 		for arg in trans.args:
@@ -592,8 +598,8 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	regfile = Module.load(regfile_v)
-	adder = Module.load(add_v)
+	regfile = Module.load(regfile_v, reset='i_rst')
+	adder = Module.load(add_v, reset='rst')
 
 	"""
 	print(regfile)
@@ -613,7 +619,7 @@ def main() -> int:
 	print(f"Trying to proof {mod.name}")
 	print(mod)
 	solver = Solver(mod.smt2_src)
-	engine = ProofEngine(mod=mod,spec=spec, solver=solver, reset_signal='i_rst', outdir=".")
+	engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir=".")
 	#engine.proof_invariances()
 	engine.proof_all()
 
