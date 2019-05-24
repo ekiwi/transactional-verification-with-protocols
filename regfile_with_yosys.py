@@ -159,6 +159,9 @@ class Module:
 	@property
 	def state(self):
 		return self._state.values()
+	@property
+	def non_mem_state(self):
+		return [s for s in self.state if not isinstance(s, ArraySignal)]
 
 	def __str__(self):
 		dd = [self._name, '-' * len(self._name), ""]
@@ -384,13 +387,12 @@ class ProofEngine:
 		self.proof_count = 0
 		self.states = []
 		self.active_proof = None
+		self.signals = list(self.mod.inputs) + list(self.mod.outputs) + list(self.mod.non_mem_state)
 
 	def _read_all_signals(self, states):
-		regs = [s for s in self.mod.state if not isinstance(s, ArraySignal)]
-		signals = list(self.mod.inputs) + list(self.mod.outputs) + regs
 		expressions = []
 		for state in states:
-			for sig in signals:
+			for sig in self.signals:
 				expressions.append(state[sig.name])
 		return expressions
 
@@ -561,18 +563,16 @@ class ProofEngine:
 			out[state_to_id[state]][signal] = parse_value(value)
 		return out
 
-	@staticmethod
-	def cex_to_table(cex: List[dict]) -> List[List[str]]:
+	def cex_to_table(self, cex: List[dict]) -> List[List[str]]:
 		table = []
-		signal_names = reduce(operator.or_, (s.keys() for s in cex))
+		signal_names = [s.name for s in self.signals]
 		table.append([""] + [str(ii) for ii in range(len(cex))])
 		for sig in signal_names:
 			table.append([sig] + [cc.get(sig, "?") for cc in cex])
 		return table
 
-	@staticmethod
-	def cex_to_csv(cex: List[dict], out):
-		for line in ProofEngine.cex_to_table(cex):
+	def cex_to_csv(self, cex: List[dict], out):
+		for line in self.cex_to_table(cex):
 			print(",".join(line), file=out)
 
 	def run_proof(self, name: str):
