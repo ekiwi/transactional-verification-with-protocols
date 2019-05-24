@@ -349,7 +349,8 @@ def proof_no_mem_change(regfile: Module, solver: Solver):
 	solver.add(Not(Equals(start['memory'], end['memory'])))
 
 
-
+def is_bool(expr):
+	return expr.is_bool_constant() or expr.is_bool_op() or (expr.is_symbol() and expr.symbol_type().is_bool_type())
 
 class ProofEngine:
 	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str, outdir=None):
@@ -380,6 +381,36 @@ class ProofEngine:
 		self.solver.add(self.spec.idle(s0))
 		return s0, s1
 
+	def transaction(self, trans: Transaction, assume_invariances=False):
+		# unroll for complete transaction
+		states = self.unroll(len(trans.proto))
+		start, end = states[0], states[-1]
+
+		# assume invariances hold at the beginning of the transaction
+		if assume_invariances:
+			for inv in self.spec.invariances:
+				self.solver.add(inv(start))
+
+		# declare transaction args
+		for arg in trans.args + trans.ret_args:
+			self.solver.fun(arg)
+
+		# apply cycle behavior
+		for m, state in zip(trans.proto.mappings, states):
+			for signal_name, expr in m.items():
+				signal = state[signal_name]
+				if is_bool(expr):
+					self.solver.add(Iff(signal, expr))
+				else:
+					if expr.bv_width() == 1:
+						expr = Equals(expr, BV(1, 1))
+						self.solver.add(Iff(signal, expr))
+					else:
+						self.solver.add(Equals(signal, expr))
+
+		# return first and last state
+		return start, end
+
 	def proof_invariances(self):
 		# TODO: take invariance dependence into account
 		for inv in self.spec.invariances:
@@ -398,11 +429,14 @@ class ProofEngine:
 			# invariance should hold after idle step
 			self.solver.add(Not(invariance(s1)))
 
-		"""
+
 		for trans in self.spec.transactions:
 			with Proof(f"invariance is inductive over {trans.name} transaction", self):
-				pass
-		"""
+				start, end = self.transaction(trans=trans, assume_invariances=False)
+				# assume this particular invariance
+				self.solver.add(invariance(start))
+				# invariance should hold after transaction
+				self.solver.add(Not(invariance(start)))
 
 class Proof:
 	def __init__(self, name: str, engine: ProofEngine):
@@ -413,6 +447,7 @@ class Proof:
 	def __enter__(self):
 		self.engine.solver.reset()
 	def __exit__(self, exc_type, exc_val, exc_tb):
+		if exc_type is not None: return
 		if self.engine.outdir is not None:
 			filename = os.path.join(self.engine.outdir, f"{self.ii}.{self.name}.smt2")
 		else:
