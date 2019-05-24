@@ -259,17 +259,17 @@ class Protocol:
 		m = self.mappings + other.mappings
 		return Protocol(mappings=m)
 
-def BitSerial(signal: str, sym: Signal) -> Protocol:
-	return Protocol([{signal: BVExtract(sym, ii, ii)} for ii in range(sym.bits)])
+def BitSerial(signal: str, sym) -> Protocol:
+	return Protocol([{signal: BVExtract(sym, ii, ii)} for ii in range(sym.bv_width())])
 
-def Repeat(signal: str, sym: Signal, cycles) -> Protocol:
+def Repeat(signal: str, sym, cycles) -> Protocol:
 	return Protocol([{signal: sym}] * cycles)
 
-def Map(signal:str, sym: Signal) -> Protocol:
+def Map(signal:str, sym) -> Protocol:
 	return Protocol([{signal: sym}])
 
 class Transaction:
-	def __init__(self, name: str, args: List[Signal], ret_args: List[Signal], proto: Protocol, semantics, mapping):
+	def __init__(self, name: str, args: List[Signal], ret_args: List[Signal], proto: Protocol, semantics):
 		self.name = name
 		self.args = args
 		self.ret_args = ret_args
@@ -302,19 +302,19 @@ class RegfileSpec(Spec):
 			return asserts
 
 		# build transaction
-		rs1_addr = BVSignal('rs1_addr', 5)
-		rs2_addr = BVSignal('rs2_addr', 5)
-		rd_enable = BoolSignal('rd_enable')
-		rd_addr = BVSignal('rd_addr', 5)
-		rd_data = BVSignal('rd_data', 32)
+		rs1_addr = Symbol('rs1_addr', BVType(5))
+		rs2_addr = Symbol('rs2_addr', BVType(5))
+		rd_enable = Symbol('rd_enable')
+		rd_addr = Symbol('rd_addr', BVType(5))
+		rd_data = Symbol('rd_data', BVType(32))
 		args = [rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data]
-		rs1_data = BVSignal('rs1_data', 32)
-		rs2_data = BVSignal('rs2_data', 32)
+		rs1_data = Symbol('rs1_data', BVType(32))
+		rs2_data = Symbol('rs2_data', BVType(32))
 		ret = [rs1_data, rs2_data]
 
-		protocol = (Map('i_go', 1) +
+		protocol = (Map('i_go', Bool(True)) +
 			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
-		            Repeat('i_go', 0, 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
+		            Repeat('i_go', Bool(False), 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
 		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
 
 
@@ -429,7 +429,7 @@ def main() -> int:
 
 
 	spec = RegfileSpec()
-	solver = SolveR(smt2_src)
+	solver = Solver(smt2_src)
 	engine = ProofEngine(mod=regfile,spec=spec, solver=solver, reset_signal='i_rst')
 	engine.proof_invariances()
 
