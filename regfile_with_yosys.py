@@ -352,12 +352,16 @@ def proof_no_mem_change(regfile: Module, solver: Solver):
 
 
 class ProofEngine:
-	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str):
+	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str, outdir=None):
 		self.mod = mod
 		self.spec = spec
 		self.solver = solver
 		self.reset_signal = reset_signal # TODO: move this info to Module class
 		self.verbose = True
+		self.outdir = outdir
+		if self.outdir is not None:
+			assert os.path.isdir(self.outdir)
+		self.proof_count = 0
 
 	def unroll(self, cycles):
 		return self.mod.declare_states(self.solver, [f's{ii}' for ii in range(cycles+1)])
@@ -402,10 +406,16 @@ class Proof:
 	def __init__(self, name: str, engine: ProofEngine):
 		self.engine = engine
 		self.name = name
+		self.ii = self.engine.proof_count
+		self.engine.proof_count += 1
 	def __enter__(self):
 		self.engine.solver.reset()
 	def __exit__(self, exc_type, exc_val, exc_tb):
-		res, model = self.engine.solver.solve()
+		if self.engine.outdir is not None:
+			filename = os.path.join(self.engine.outdir, f"{self.ii}.{self.name}.smt2")
+		else:
+			filename = None
+		res, model = self.engine.solver.solve(filename =filename)
 		assert res == unsat, f"❌ Failed to proof: {self.name}\nCEX:\n{model}"
 		if self.engine.verbose:
 			print(f"✔️ {self.name}")
@@ -430,7 +440,7 @@ def main() -> int:
 
 	spec = RegfileSpec()
 	solver = Solver(smt2_src)
-	engine = ProofEngine(mod=regfile,spec=spec, solver=solver, reset_signal='i_rst')
+	engine = ProofEngine(mod=regfile,spec=spec, solver=solver, reset_signal='i_rst', outdir=".")
 	engine.proof_invariances()
 
 	return 0
