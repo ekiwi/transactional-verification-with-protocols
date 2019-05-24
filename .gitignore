@@ -11,3 +11,6 @@ __pycache__/
 
 # SMT
 /*.smt2
+
+# CEX
+/*.csv

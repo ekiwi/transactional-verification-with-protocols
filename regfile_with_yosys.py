@@ -8,6 +8,8 @@ from functools import reduce
 from itertools import zip_longest, chain
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import SmtLibScript, smtcmd
+import operator
+import tabulate
 
 # local hack (TODO: remove)
 yosys_path = os.path.expanduser(os.path.join('~', 'd', 'yosys'))
@@ -539,7 +541,7 @@ class ProofEngine:
 
 	def parse_cex(self, cex: str, states: List[State]):
 		state_to_id = {st.name: ii for ii, st in enumerate(states)}
-		out = [dict()] * len(states)
+		out = [dict() for _ in range(len(states))]
 
 		prefix = rf'\(\(\(\|{self.mod.name}_n ([a-zA-Z_0-9]+)\|\s+([a-zA-Z_0-9]+)\)\s+'
 		suffix = r'\)\)'
@@ -559,6 +561,20 @@ class ProofEngine:
 			out[state_to_id[state]][signal] = parse_value(value)
 		return out
 
+	@staticmethod
+	def cex_to_table(cex: List[dict]) -> List[List[str]]:
+		table = []
+		signal_names = reduce(operator.or_, (s.keys() for s in cex))
+		table.append([""] + [str(ii) for ii in range(len(cex))])
+		for sig in signal_names:
+			table.append([sig] + [cc.get(sig, "?") for cc in cex])
+		return table
+
+	@staticmethod
+	def cex_to_csv(cex: List[dict], out):
+		for line in ProofEngine.cex_to_table(cex):
+			print(",".join(line), file=out)
+
 	def run_proof(self, name: str):
 		assert self.active_proof == name
 		if self.outdir is not None:
@@ -572,6 +588,11 @@ class ProofEngine:
 		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read)
 		if res == sat and read is not None:
 			model = self.parse_cex(model, self.states)
+			with open('cex.csv', 'w') as ff:
+				self.cex_to_csv(model, out=ff)
+			print("Wrote counter example to cex.csv")
+			table = self.cex_to_table(model)
+			model = tabulate.tabulate(tabular_data=table[1:], headers=table[0])
 		assert res == unsat, f"❌ Failed to proof: {name}\nCEX:\n{model}"
 		if self.verbose:
 			print(f"✔️ {name}")

@@ -1,1 +1,2 @@
 PySMT >= 0.8
+tabulate
