@@ -71,6 +71,10 @@ class Solver:
 		self.assertions = []
 		self.funs = []
 
+	def reset(self):
+		self.assertions = []
+		self.funs = []
+
 	def add(self, *assertions):
 		self.assertions += assertions
 
@@ -322,10 +326,10 @@ class RegfileSpec(Spec):
 
 		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
-		idle = {'i_go': 0, 'i_rd_en': 0}
+		idle = lambda state: And(Not(state['i_go']), Not(state['i_rd_en']))
 
 		# TODO: infer
-		inv = {'wcnt': 0}
+		inv = [lambda state: Equals(state['wcnt'], BV(0, 5))]
 		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv)
 
 
@@ -345,18 +349,66 @@ def proof_no_mem_change(regfile: Module, solver: Solver):
 	solver.add(Not(Equals(start['memory'], end['memory'])))
 
 
+
+
 class ProofEngine:
-	def __init__(self, mod: Module, spec: Spec):
+	def __init__(self, mod: Module, spec: Spec, solver: Solver, reset_signal: str):
 		self.mod = mod
 		self.spec = spec
+		self.solver = solver
+		self.reset_signal = reset_signal # TODO: move this info to Module class
+		self.verbose = True
 
-	def reset(self):
-		pass
+	def unroll(self, cycles):
+		return self.mod.declare_states(self.solver, [f's{ii}' for ii in range(cycles+1)])
+
+	def reset(self, cycles=1):
+		states = self.unroll(cycles)
+		# assert reset signal for N cycles
+		for s in states[:-1]:
+			self.solver.add(s[self.reset_signal])
+		return states
+
+	def idle(self):
+		s0, s1 = self.unroll(1)
+		self.solver.add(self.spec.idle(s0))
+		return s0, s1
 
 	def proof_invariances(self):
-		# 1) check that invariance holds after reset
-		pass
+		# TODO: take invariance dependence into account
+		for inv in self.spec.invariances:
+			self.proof_invariance(inv)
 
+	def proof_invariance(self, invariance):
+		# TODO: take strengthening invariances into account
+		with Proof("invariance holds after reset", self):
+			final = self.reset(cycles=1)[-1]
+			# invariance should hold after reset
+			self.solver.add(Not(invariance(final)))
+
+		with Proof("invariance is inductive over idle period", self):
+			s0, s1 = self.idle()
+			self.solver.add(invariance(s0))
+			# invariance should hold after idle step
+			self.solver.add(Not(invariance(s1)))
+
+		"""
+		for trans in self.spec.transactions:
+			with Proof(f"invariance is inductive over {trans.name} transaction", self):
+				pass
+		"""
+
+class Proof:
+	def __init__(self, name: str, engine: ProofEngine):
+		self.engine = engine
+		self.name = name
+	def __enter__(self):
+		self.engine.solver.reset()
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		res, model = self.engine.solver.solve()
+		assert res == unsat, f"❌ Failed to proof: {self.name}\nCEX:\n{model}"
+		if self.engine.verbose:
+			print(f"✔️ {self.name}")
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
 
@@ -368,11 +420,18 @@ def main() -> int:
 	smt2_names = parse_yosys_smt2(smt2_src)
 	regfile = Module(**smt2_names)
 
+	"""
 	print(regfile)
-
 	solver = Solver(smt2_src)
 	proof_no_mem_change(regfile, solver)
 	print(solver.solve())
+	"""
+
+
+	spec = RegfileSpec()
+	solver = SolveR(smt2_src)
+	engine = ProofEngine(mod=regfile,spec=spec, solver=solver, reset_signal='i_rst')
+	engine.proof_invariances()
 
 	return 0
 
