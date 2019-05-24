@@ -364,7 +364,9 @@ class ProofEngine:
 		self.proof_count = 0
 
 	def unroll(self, cycles):
-		return self.mod.declare_states(self.solver, [f's{ii}' for ii in range(cycles+1)])
+		states = self.mod.declare_states(self.solver, [f's{ii}' for ii in range(cycles+1)])
+		self.mod.transition(self.solver, states)
+		return states
 
 	def reset(self, cycles=1):
 		states = self.unroll(cycles)
