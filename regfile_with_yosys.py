@@ -388,6 +388,7 @@ class ProofEngine:
 		self.states = []
 		self.active_proof = None
 		self.signals = list(self.mod.inputs) + list(self.mod.outputs) + list(self.mod.non_mem_state)
+		self.last_proof_accepted = False
 
 	def _read_all_signals(self, states):
 		expressions = []
@@ -419,7 +420,9 @@ class ProofEngine:
 			self.solver.add(Not(s0[self.mod.reset]))
 		return s0, s1
 
-	def transaction(self, trans: Transaction, assume_invariances=False, skip_reads=False):
+	def transaction(self, trans: Transaction, assume_invariances=False, skip_reads=False, cycles=None):
+		assert cycles is None, "TODO: implement"
+
 		# unroll for complete transaction
 		states = self.unroll(len(trans.proto))
 		start, end = states[0], states[-1]
@@ -507,36 +510,40 @@ class ProofEngine:
 
 	def proof_transaction(self, trans: Transaction):
 		with Proof(f"transaction {trans.name} is correct", self):
-			start, end, reads = self.transaction(trans=trans, assume_invariances=True)
-			# declare return args
-			arch_outs = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
-			for sym in trans.ret_args + list(arch_outs.values()):
-				self.solver.fun(sym)
-			# declare and map start/end arch state
-			start_arch = self.map_arch_state("", start)
-			end_arch = self.map_arch_state("_read", end)
-			# semantics
-			sem_out = trans.semantics(**{arg.symbol_name(): arg for arg in trans.args}, **start_arch)
-			# map outputs
-			for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
-				self.solver.add(equal(expr, sem_out[name]))
-			# verify reads
-			vc = []
-			for ii, m in enumerate(trans.proto.mappings):
-				for signal_name, expr in m.items():
-					if not self.mod.is_output(signal_name): continue
-					read = reads[ii][signal_name]
-					vc.append(equal(read, expr))
-			# verify arch
-			for name in self.spec.arch_state.keys():
-				vc.append(Equals(arch_outs[name], end_arch[name]))
-			# check validity
+			vc = self.setup_transaction_proof(trans)
 			self.solver.add(Not(conjunction(*vc)))
 
-	def start_proof(self, name: str):
+	def setup_transaction_proof(self, trans: Transaction, cycles=None):
+		start, end, reads = self.transaction(trans=trans, assume_invariances=True, cycles=cycles)
+		# declare return args
+		arch_outs = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
+		for sym in trans.ret_args + list(arch_outs.values()):
+			self.solver.fun(sym)
+		# declare and map start/end arch state
+		start_arch = self.map_arch_state("", start)
+		end_arch = self.map_arch_state("_read", end)
+		# semantics
+		sem_out = trans.semantics(**{arg.symbol_name(): arg for arg in trans.args}, **start_arch)
+		# map outputs
+		for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
+			self.solver.add(equal(expr, sem_out[name]))
+		# verify reads
+		vc = []
+		for ii, m in enumerate(trans.proto.mappings):
+			for signal_name, expr in m.items():
+				if not self.mod.is_output(signal_name): continue
+				read = reads[ii][signal_name]
+				vc.append(equal(read, expr))
+		# verify arch
+		for name in self.spec.arch_state.keys():
+			vc.append(Equals(arch_outs[name], end_arch[name]))
+		return vc
+
+	def start_proof(self, proof):
 		ii = self.proof_count
 		self.proof_count += 1
-		self.active_proof = name
+		assert self.active_proof is None
+		self.active_proof = proof
 		self.solver.reset()
 		self.states = []
 		return ii
@@ -575,10 +582,10 @@ class ProofEngine:
 		for line in self.cex_to_table(cex):
 			print(",".join(line), file=out)
 
-	def run_proof(self, name: str):
-		assert self.active_proof == name
+	def run_proof(self, proof):
+		assert self.active_proof == proof
 		if self.outdir is not None:
-			filename = os.path.join(self.outdir, f"{self.proof_count - 1}.{name}.smt2")
+			filename = os.path.join(self.outdir, f"{proof.ii}.{proof.name}.smt2")
 		else:
 			filename = None
 		if len(self.states) > 0:
@@ -593,23 +600,29 @@ class ProofEngine:
 			print("Wrote counter example to cex.csv")
 			table = self.cex_to_table(model)
 			model = tabulate.tabulate(tabular_data=table[1:], headers=table[0])
-		assert res == unsat, f"❌ Failed to proof: {name}\nCEX:\n{model}"
+		if proof.check:
+			assert res == unsat, f"❌ Failed to proof: {proof.name}\nCEX:\n{model}"
 		if self.verbose:
-			print(f"✔️ {name}")
+			if res == unsat:
+				print(f"✔️ {proof.name}")
+			else:
+				print(f"❌ {proof.name}")
 		self.active_proof = None
+		self.last_proof_accepted = res == unsat
 
 
 class Proof:
-	def __init__(self, name: str, engine: ProofEngine):
+	def __init__(self, name: str, engine: ProofEngine, check = True):
 		self.engine = engine
 		self.name = name
+		self.check = check
 		self.ii = None
 	def __enter__(self):
-		self.ii = self.engine.start_proof(self.name)
+		self.ii = self.engine.start_proof(self)
 		return self
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		if exc_type is not None: return
-		self.engine.run_proof(self.name)
+		self.engine.run_proof(self)
 
 ########################################################################################################################
 # Regfile Specific Code
