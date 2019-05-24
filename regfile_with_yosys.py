@@ -47,14 +47,14 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 			m = regex.match(line)
 			if m is not None:
 				results[name].append(m.groups())
-	results = dict(results)
 	assert len(results['modules']) == 1, "Currently this software only works for single modules!"
 	results['name'] = results['modules'][0][0]
-	results.pop('modules')
 	for key in ['inputs', 'outputs', 'registers']:
 		results[key] = { ii[0]: BVSignal.from_yosys(*ii) for ii in results[key]}
 	results['memories'] = { ii[0]: ArraySignal.from_yosys(*ii) for ii in results['memories']}
 	results['state'] = {**results['memories'], **results['registers']}
+	results = dict(results)
+	results.pop('modules')
 	results.pop('memories')
 	results.pop('registers')
 	return results
@@ -119,13 +119,21 @@ class Solver:
 		return sat, r
 
 class Module:
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"]):
+	@staticmethod
+	def load(verilog_file: str):
+		assert os.path.isfile(verilog_file)
+		smt2_src = verilog_to_smt2(verilog_file)
+		smt2_names = parse_yosys_smt2(smt2_src)
+		return Module(**smt2_names, smt2_src=smt2_src)
+
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], smt2_src: str):
 		self._name = name
 		self._inputs = inputs
 		self._outputs = outputs
 		self._state = state
 		self.state_t = Type(name + "_s")
 		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
+		self.smt2_src = smt2_src
 
 	@property
 	def name(self): return self._name
@@ -285,13 +293,16 @@ class Transaction:
 
 
 
+def default(expr, default):
+	return expr if expr is not None else default
+
 class Spec:
-	def __init__(self, arch_state, mapping, transactions, idle, invariances):
-		self.arch_state = arch_state
-		self.transactions = transactions
-		self.idle = idle
-		self.invariances = invariances
-		self.mapping = mapping
+	def __init__(self, arch_state=None, mapping=None, transactions=None, idle=None, invariances=None):
+		self.arch_state = default(arch_state, {})
+		self.transactions = default(transactions, [])
+		self.idle = default(idle, lambda state: Bool(True))
+		self.invariances = default(invariances, [])
+		self.mapping = default(mapping, lambda state: [Bool(True)])
 
 
 def proof_no_mem_change(regfile: Module, solver: Solver):
@@ -533,7 +544,7 @@ class RegfileSpec(Spec):
 		rs2_data = Symbol('rs2_data', BVType(32))
 		ret = [rs1_data, rs2_data]
 
-		protocol = (Map('i_go', Bool(True)) +
+		protocol = (Map('i_go', Bool(True)) + Map('i_go', Bool(False)) +
 			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
 		            Repeat('i_go', Bool(False), 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
 		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
@@ -553,16 +564,36 @@ class RegfileSpec(Spec):
 		inv = [lambda state: Equals(state['wcnt'], BV(0, 5))]
 		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv)
 
+class AdderSpec(Spec):
+	def __init__(self, bits):
+		a = Symbol('a', BVType(bits))
+		b = Symbol('b', BVType(bits))
+		c = Symbol('c', BVType(bits))
+		carry = Symbol('carry', BVType(1))
+		protocol = Map('clr', Bool(True)) + (BitSerial('a', a) | BitSerial('b', b) | BitSerial('q', c) |
+											 Repeat('clr', Bool(False), bits))
+		protocol.mappings[-1]['o_v'] = carry
+
+		def semantics(a, b):
+			c = BVAdd(a, b)
+			carry = BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)
+			return {'c': c, 'carry': carry}
+
+		transactions = [Transaction(name=f"add{bits}", args=[a,b], ret_args=[c,carry], semantics=semantics, proto=protocol)]
+
+		super().__init__(transactions=transactions)
+
+
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
+add_v = os.path.join('serv', 'rtl', 'ser_add.v')
 
 def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	smt2_src = verilog_to_smt2(regfile_v)
-	smt2_names = parse_yosys_smt2(smt2_src)
-	regfile = Module(**smt2_names)
+	regfile = Module.load(regfile_v)
+	adder = Module.load(add_v)
 
 	"""
 	print(regfile)
@@ -571,10 +602,18 @@ def main() -> int:
 	print(solver.solve())
 	"""
 
+	if False:
+		spec = RegfileSpec()
+		mod = regfile
+	else:
+		spec = AdderSpec(2)
+		mod = adder
 
-	spec = RegfileSpec()
-	solver = Solver(smt2_src)
-	engine = ProofEngine(mod=regfile,spec=spec, solver=solver, reset_signal='i_rst', outdir=".")
+
+	print(f"Trying to proof {mod.name}")
+	print(mod)
+	solver = Solver(mod.smt2_src)
+	engine = ProofEngine(mod=mod,spec=spec, solver=solver, reset_signal='i_rst', outdir=".")
 	#engine.proof_invariances()
 	engine.proof_all()
 
