@@ -490,6 +490,8 @@ class ProofEngine:
 	def proof_all(self):
 		self.proof_invariances()
 		self.proof_transactions()
+		if len(self.spec.arch_state) > 0:
+			print("WARN: we still need to prove that the architectural states stay the same across IDLE transactions!")
 
 	def proof_invariances(self):
 		# TODO: take invariance dependence into account
