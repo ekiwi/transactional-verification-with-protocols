@@ -531,18 +531,19 @@ class ProofEngine:
 		self.solver.add(conjunction(*self.spec.mapping(state=state, **arch_state)))
 		return arch_state
 
-	def proof_transaction(self, trans: Transaction):
+	def proof_transaction(self, trans: Transaction, always_incremental = True):
 		assert self.active_trans is None
 		self.active_trans = trans
 		cycles = len(trans.proto)
 
-		# 1.) attempt a full proof
-		with Proof(f"transaction {trans.name} is correct", self, check=False):
-			vc = self.setup_transaction_proof(trans)
-			self.solver.add(Not(conjunction(*vc)))
-		if self.last_proof_accepted:
-			self.active_trans = None
-			return True
+		if not always_incremental:
+			# 1.) attempt a full proof
+			with Proof(f"transaction {trans.name} is correct", self, check=False):
+				vc = self.setup_transaction_proof(trans)
+				self.solver.add(Not(conjunction(*vc)))
+			if self.last_proof_accepted:
+				self.active_trans = None
+				return True
 
 		# 2.) incremental proof
 		check_vcs = 0
