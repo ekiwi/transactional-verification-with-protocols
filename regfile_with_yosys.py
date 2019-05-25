@@ -573,9 +573,11 @@ class ProofEngine:
 		sem_out = trans.semantics(**{arg.symbol_name(): arg for arg in trans.args}, **start_arch)
 
 		# map outputs
-		end_arch = self.map_arch_state("_read", end) if complete else {}
-		for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
+		for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, arch_outs).items():
 			self.solver.add(equal(expr, sem_out[name]))
+
+		# final arch state
+		end_arch = self.map_arch_state("_read", end) if complete else {}
 
 		# verify reads
 		vc = []
@@ -799,7 +801,7 @@ def main() -> int:
 		print(f"Trying to proof {mod.name}")
 		print(mod)
 		solver = Solver(mod.smt2_src)
-		engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir=".")
+		engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
 		#engine.proof_invariances()
 		engine.proof_all()
 		print()
