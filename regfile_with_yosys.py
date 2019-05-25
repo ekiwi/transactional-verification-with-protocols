@@ -550,7 +550,10 @@ class ProofEngine:
 			for ii in range(max_vc - check_vcs):
 				with Proof(f"{trans.name}: {vcs[check_vcs]} ({cc} cycles)", self):
 					vc = self.setup_transaction_proof(trans, cycles=cc)[:check_vcs+1]
-					self.solver.add(Not(conjunction(*vc)))
+					proven = vc[:-1]
+					if len(proven) > 0:
+						self.solver.add(conjunction(*proven))
+					self.solver.add(Not(vc[-1]))
 				check_vcs += 1
 		assert False, f"should not get here! check_vcs={check_vcs}"
 
