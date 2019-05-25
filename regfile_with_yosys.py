@@ -722,11 +722,17 @@ class RegfileSpec(Spec):
 		rs2_data = Symbol('rs2_data', BVType(32))
 		ret = [rs1_data, rs2_data]
 
-		protocol = (Map('i_go', Bool(True)) +  Map('i_go', Bool(False)) + Map('i_go', Bool(False)) +
-			       (BitSerial('i_rd', rd_data) | BitSerial('o_rs1', rs1_data)     | BitSerial('o_rs2', rs2_data) |
-		            Repeat('i_go', Bool(False), 32)      | Repeat('i_rd_en', rd_enable, 32) | Repeat('i_rd_addr', rd_addr, 32) |
-		            Repeat('i_rs1_addr', rs1_addr, 32) | Repeat('i_rs2_addr', rs2_addr, 32)))
-
+		protocol = (
+			(Map('i_go', Bool(True)) + Map('i_go', Bool(False)) * 34) |
+			(Repeat('i_rs1_addr', rs1_addr, 32) >> 1) |
+			(Repeat('i_rs2_addr', rs2_addr, 32) >> 1) |
+			(Repeat('i_rd_addr', rd_addr, 32) >> 3)   |
+			(Repeat('i_rd_en', rd_enable, 32) >> 3)   |
+			(BitSerial('o_rs1', rs1_data) >> 3)       |
+			(BitSerial('o_rs2', rs2_data) >> 3)       |
+			(BitSerial('i_rd', rd_data) >> 3)
+		)
+		assert len(protocol) == 35
 
 		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
 			rs1_data = Select(x, rs1_addr)
