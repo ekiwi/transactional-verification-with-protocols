@@ -389,13 +389,17 @@ class ProofEngine:
 		self.active_proof = None
 		self.signals = list(self.mod.inputs) + list(self.mod.outputs) + list(self.mod.non_mem_state)
 		self.last_proof_accepted = False
+		self.active_trans : Optional[Transaction] = None
 
-	def _read_all_signals(self, states):
+	def _read_all_signals(self, states) -> list:
 		expressions = []
 		for state in states:
 			for sig in self.signals:
 				expressions.append(state[sig.name])
 		return expressions
+
+	def _read_all_trans(self, trans: Transaction) -> list:
+		return [sig for sig in chain(trans.args, trans.ret_args)]
 
 	def unroll(self, cycles):
 		states = self.mod.declare_states(self.solver, [f's{ii}' for ii in range(cycles+1)])
@@ -510,6 +514,8 @@ class ProofEngine:
 		return arch_state
 
 	def proof_transaction(self, trans: Transaction):
+		assert self.active_trans is None
+		self.active_trans = trans
 		cycles = len(trans.proto)
 
 		# 1.) attempt a full proof
@@ -517,6 +523,7 @@ class ProofEngine:
 			vc = self.setup_transaction_proof(trans)
 			self.solver.add(Not(conjunction(*vc)))
 		if self.last_proof_accepted:
+			self.active_trans = None
 			return True
 
 		# 2.) incremental proof
@@ -529,6 +536,7 @@ class ProofEngine:
 					vc = self.setup_transaction_proof(trans, cycles=cc)[:ii+1]
 					self.solver.add(Not(conjunction(*vc)))
 				check_vcs += 1
+		assert False, "should not get here!"
 
 	def setup_transaction_proof(self, trans: Transaction, cycles=None):
 		start, end, reads = self.transaction(trans=trans, assume_invariances=True, cycles=cycles)
@@ -573,11 +581,14 @@ class ProofEngine:
 
 	def parse_cex(self, cex: str, states: List[State]):
 		state_to_id = {st.name: ii for ii, st in enumerate(states)}
-		out = [dict() for _ in range(len(states))]
+		signals = [dict() for _ in range(len(states))]
+		trans = {}
 
 		prefix = rf'\(\(\(\|{self.mod.name}_n ([a-zA-Z_0-9]+)\|\s+([a-zA-Z_0-9]+)\)\s+'
 		suffix = r'\)\)'
-		re_line = re.compile(prefix + '(#b[01]+|false|true)' + suffix)
+		bv_bool = '(#b[01]+|false|true)'
+		re_signal = re.compile(prefix + bv_bool + suffix)
+		re_trans = re.compile(f'\(\(([a-zA-Z_0-9]+)\s+' + bv_bool + suffix)
 
 		def parse_value(vv):
 			if vv == 'true': return "1"
@@ -587,11 +598,16 @@ class ProofEngine:
 
 		for line in cex.splitlines():
 			if line.strip() == 'sat': continue
-			m = re_line.match(line)
-			assert m is not None, f"Failed to parse line: {line}"
-			signal, state, value = m.groups()
-			out[state_to_id[state]][signal] = parse_value(value)
-		return out
+			m = re_signal.match(line)
+			if m is not None:
+				signal, state, value = m.groups()
+				signals[state_to_id[state]][signal] = parse_value(value)
+			else:
+				m = re_trans.match(line)
+				assert m is not None, f"Failed to parse line: {line}"
+				name, value = m.groups()
+				trans[name] = parse_value(value)
+		return signals, trans
 
 	def cex_to_table(self, cex: List[dict]) -> List[List[str]]:
 		table = []
@@ -605,6 +621,14 @@ class ProofEngine:
 		for line in self.cex_to_table(cex):
 			print(",".join(line), file=out)
 
+	def render_transact_cex(self, values: dict):
+		if self.active_trans is None: return ""
+		render_val = lambda a: f"{a.symbol_name()} = {values[a.symbol_name()]}"
+		args = ', '.join(render_val(a) for a in self.active_trans.args)
+		out = f"\n\n{self.active_trans.name}({args}) =\n"
+		out += '\n'.join("\t" + render_val(a) for a in self.active_trans.ret_args)
+		return out
+
 	def run_proof(self, proof):
 		assert self.active_proof == proof
 		if self.outdir is not None:
@@ -613,16 +637,19 @@ class ProofEngine:
 			filename = None
 		if len(self.states) > 0:
 			read = self._read_all_signals(self.states)
+			if self.active_trans is not None:
+				read += self._read_all_trans(self.active_trans)
 		else:
 			read = None
 		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read)
 		if res == sat and read is not None:
-			model = self.parse_cex(model, self.states)
+			signals, trans = self.parse_cex(model, self.states)
 			with open('cex.csv', 'w') as ff:
-				self.cex_to_csv(model, out=ff)
+				self.cex_to_csv(signals, out=ff)
 			print("Wrote counter example to cex.csv")
-			table = self.cex_to_table(model)
+			table = self.cex_to_table(signals)
 			model = tabulate.tabulate(tabular_data=table[1:], headers=table[0])
+			model += self.render_transact_cex(trans)
 		if proof.check:
 			assert res == unsat, f"❌ Failed to proof: {proof.name}\nCEX:\n{model}"
 		if self.verbose:
