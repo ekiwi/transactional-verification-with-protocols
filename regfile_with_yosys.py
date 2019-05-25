@@ -548,11 +548,11 @@ class ProofEngine:
 			vcs = self.setup_transaction_proof(trans, cycles=cc)
 			max_vc = len(vcs)
 			for ii in range(max_vc - check_vcs):
-				with Proof(f"{trans.name}: {vcs[ii]} ({cc} cycles)", self):
-					vc = self.setup_transaction_proof(trans, cycles=cc)[:ii+1]
+				with Proof(f"{trans.name}: {vcs[check_vcs]} ({cc} cycles)", self):
+					vc = self.setup_transaction_proof(trans, cycles=cc)[:check_vcs+1]
 					self.solver.add(Not(conjunction(*vc)))
 				check_vcs += 1
-		assert False, "should not get here!"
+		assert False, f"should not get here! check_vcs={check_vcs}"
 
 	def setup_transaction_proof(self, trans: Transaction, cycles=None):
 		start, end, reads = self.transaction(trans=trans, assume_invariances=True, cycles=cycles)
