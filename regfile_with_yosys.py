@@ -406,7 +406,6 @@ class ProofEngine:
 	def reset(self, cycles=1):
 		assert self.mod.reset is not None, f"Module {self.mod.name} does not have a reset signal declared!"
 		states = self.unroll(cycles)
-		self.states += states
 		# assert reset signal for N cycles
 		for s in states[:-1]:
 			self.solver.add(s[self.mod.reset])
@@ -414,18 +413,20 @@ class ProofEngine:
 
 	def idle(self):
 		s0, s1 = self.unroll(1)
-		self.states += [s0, s1]
 		self.solver.add(self.spec.idle(s0))
 		if self.mod.reset is not None:
 			self.solver.add(Not(s0[self.mod.reset]))
 		return s0, s1
 
 	def transaction(self, trans: Transaction, assume_invariances=False, skip_reads=False, cycles=None):
-		assert cycles is None, "TODO: implement"
+		cycle_count = min(default(cycles, len(trans.proto)), len(trans.proto))
+		assert cycle_count >= 1, f"{cycles}"
 
 		# unroll for complete transaction
-		states = self.unroll(len(trans.proto))
+		states = self.unroll(cycle_count)
 		start, end = states[0], states[-1]
+		if cycle_count < len(trans.proto):
+			end = None
 
 		# assume invariances hold at the beginning of the transaction
 		if assume_invariances:
@@ -521,37 +522,44 @@ class ProofEngine:
 		# 2.) incremental proof
 		check_vcs = 0
 		for cc in range(1, cycles+1):
-			vcs = self.setup_transaction_proof(trans, cycles=cycles)
+			vcs = self.setup_transaction_proof(trans, cycles=cc)
 			max_vc = len(vcs)
 			for ii in range(max_vc - check_vcs):
 				with Proof(f"{trans.name}: {vcs[ii]} ({cc} cycles)", self):
-					vc = self.setup_transaction_proof(trans, cycles=cycles)[:ii]
+					vc = self.setup_transaction_proof(trans, cycles=cc)[:ii+1]
 					self.solver.add(Not(conjunction(*vc)))
+				check_vcs += 1
 
 	def setup_transaction_proof(self, trans: Transaction, cycles=None):
 		start, end, reads = self.transaction(trans=trans, assume_invariances=True, cycles=cycles)
+
 		# declare return args
 		arch_outs = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
 		for sym in trans.ret_args + list(arch_outs.values()):
 			self.solver.fun(sym)
-		# declare and map start/end arch state
-		start_arch = self.map_arch_state("", start)
-		end_arch = self.map_arch_state("_read", end)
+
 		# semantics
+		start_arch = self.map_arch_state("", start)
 		sem_out = trans.semantics(**{arg.symbol_name(): arg for arg in trans.args}, **start_arch)
-		# map outputs
-		for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
-			self.solver.add(equal(expr, sem_out[name]))
+
+		# map outputs if we are dealing with a complete transaction
+		if end is not None:
+			end_arch = self.map_arch_state("_read", end)
+			for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
+				self.solver.add(equal(expr, sem_out[name]))
+
 		# verify reads
 		vc = []
 		for ii, m in enumerate(trans.proto.mappings):
+			if ii >= len(reads): break
 			for signal_name, expr in m.items():
 				if not self.mod.is_output(signal_name): continue
 				read = reads[ii][signal_name]
 				vc.append(equal(read, expr))
-		# verify arch
-		for name in self.spec.arch_state.keys():
-			vc.append(Equals(arch_outs[name], end_arch[name]))
+		# verify arch state if we are dealing with a complete transaction
+		if end is not None:
+			for name in self.spec.arch_state.keys():
+				vc.append(Equals(arch_outs[name], end_arch[name]))
 		return vc
 
 	def start_proof(self, proof):
@@ -731,7 +739,7 @@ def main() -> int:
 
 	mods = [(adder, lambda: AdderSpec(32)), (regfile, RegfileSpec)]
 
-	for mod, spec_fun in mods:
+	for mod, spec_fun in mods[1:]:
 		reset_env()
 		spec = spec_fun()
 		print(f"Trying to proof {mod.name}")
