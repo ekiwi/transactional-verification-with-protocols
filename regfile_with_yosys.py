@@ -509,9 +509,24 @@ class ProofEngine:
 		return arch_state
 
 	def proof_transaction(self, trans: Transaction):
-		with Proof(f"transaction {trans.name} is correct", self):
+		cycles = len(trans.proto)
+
+		# 1.) attempt a full proof
+		with Proof(f"transaction {trans.name} is correct", self, check=False):
 			vc = self.setup_transaction_proof(trans)
 			self.solver.add(Not(conjunction(*vc)))
+		if self.last_proof_accepted:
+			return True
+
+		# 2.) incremental proof
+		check_vcs = 0
+		for cc in range(1, cycles+1):
+			vcs = self.setup_transaction_proof(trans, cycles=cycles)
+			max_vc = len(vcs)
+			for ii in range(max_vc - check_vcs):
+				with Proof(f"{trans.name}: {vcs[ii]} ({cc} cycles)", self):
+					vc = self.setup_transaction_proof(trans, cycles=cycles)[:ii]
+					self.solver.add(Not(conjunction(*vc)))
 
 	def setup_transaction_proof(self, trans: Transaction, cycles=None):
 		start, end, reads = self.transaction(trans=trans, assume_invariances=True, cycles=cycles)
