@@ -727,7 +727,7 @@ class RegfileSpec(Spec):
 			(Repeat('i_rs1_addr', rs1_addr, 32) >> 1) |
 			(Repeat('i_rs2_addr', rs2_addr, 32) >> 1) |
 			(Repeat('i_rd_addr', rd_addr, 32) >> 3)   |
-			(Repeat('i_rd_en', rd_enable, 32) >> 3)   |
+			(Map('i_rd_en', Bool(False)) * 3 + Repeat('i_rd_en', rd_enable, 32))   |
 			(BitSerial('o_rs1', rs1_data) >> 3)       |
 			(BitSerial('o_rs2', rs2_data) >> 3)       |
 			(BitSerial('i_rd', rd_data) >> 3)
