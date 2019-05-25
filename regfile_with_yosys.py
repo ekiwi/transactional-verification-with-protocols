@@ -532,6 +532,7 @@ class ProofEngine:
 
 	def setup_transaction_proof(self, trans: Transaction, cycles=None):
 		start, end, reads = self.transaction(trans=trans, assume_invariances=True, cycles=cycles)
+		complete = end is not None
 
 		# declare return args
 		arch_outs = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
@@ -542,11 +543,10 @@ class ProofEngine:
 		start_arch = self.map_arch_state("", start)
 		sem_out = trans.semantics(**{arg.symbol_name(): arg for arg in trans.args}, **start_arch)
 
-		# map outputs if we are dealing with a complete transaction
-		if end is not None:
-			end_arch = self.map_arch_state("_read", end)
-			for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
-				self.solver.add(equal(expr, sem_out[name]))
+		# map outputs
+		end_arch = self.map_arch_state("_read", end) if complete else {}
+		for name, expr in merge_dicts({arg.symbol_name(): arg for arg in trans.ret_args}, end_arch).items():
+			self.solver.add(equal(expr, sem_out[name]))
 
 		# verify reads
 		vc = []
@@ -557,7 +557,7 @@ class ProofEngine:
 				read = reads[ii][signal_name]
 				vc.append(equal(read, expr))
 		# verify arch state if we are dealing with a complete transaction
-		if end is not None:
+		if complete:
 			for name in self.spec.arch_state.keys():
 				vc.append(Equals(arch_outs[name], end_arch[name]))
 		return vc
