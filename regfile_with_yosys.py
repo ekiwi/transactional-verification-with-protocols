@@ -276,7 +276,7 @@ def merge_dicts(a: dict, b: dict) -> dict:
 	return {**a, **b}
 
 class Protocol:
-	def __init__(self, mappings):
+	def __init__(self, mappings: list):
 		self.mappings = mappings
 
 	def __len__(self):
@@ -290,6 +290,22 @@ class Protocol:
 	def __add__(self, other):
 		assert isinstance(other, Protocol)
 		m = self.mappings + other.mappings
+		return Protocol(mappings=m)
+
+	def __mul__(self, other):
+		assert isinstance(other, int)
+		assert other < 1000
+		m = self.mappings * other
+		return Protocol(mappings=m)
+
+	def __rshift__(self, other):
+		assert isinstance(other, int)
+		m = [dict() for _ in range(other)] + self.mappings
+		return Protocol(mappings=m)
+
+	def __lshift__(self, other):
+		assert isinstance(other, int)
+		m = self.mappings + [dict() for _ in range(other)]
 		return Protocol(mappings=m)
 
 def BitSerial(signal: str, sym) -> Protocol:
