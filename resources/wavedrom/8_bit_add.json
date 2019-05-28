@@ -1,0 +1,9 @@
+{signal: [
+  {name: 'clk', wave: 'xp........x'},
+  {name: 'clr', wave: 'x10.......x'},
+  {name: 'a',   wave: 'xx22222222x', data: ['a[0]', 'a[1]', 'a[2]', 'a[3]', 'a[4]', 'a[5]', 'a[6]', 'a[7]']},
+  {name: 'b',   wave: 'xx22222222x', data: ['b[0]', 'b[1]', 'b[2]', 'b[3]', 'b[4]', 'b[5]', 'b[6]', 'b[7]']},
+  {name: 'q',   wave: 'xx22222222x', data: ['c[0]', 'c[1]', 'c[2]', 'c[3]', 'c[4]', 'c[5]', 'c[6]', 'c[7]']},
+  {name: 'c_n', wave: 'xxxxxxxxx2x', data: ['carry']},
+]}
+
