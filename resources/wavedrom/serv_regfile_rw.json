@@ -1,0 +1,15 @@
+{signal: [
+  {name: 'clk',                wave: 'xp.....|...x'},
+  {name: 'go : Bool',          wave: 'x10....|...x'},
+  {name: 'rs1_addr : UInt<5>', wave: 'xx2....|.xxx', data: ['rs1_addr']},
+  {name: 'rs2_addr : UInt<5>', wave: 'xx2....|.xxx', data: ['rs2_addr']},
+  {name: 'rd_addr : UInt<5>',  wave: 'xxxx2..|...x', data: ['rd_addr']},
+  {name: 'rd_en : Bool',       wave: 'x0..2..|...x', data: ['rd_enable']},
+  {name: 'rs1 : UInt<1>',      wave: 'x...222|222x', data: ['rs1[0]', 'rs1[1]', '', 'rs1[29]', 'rs1[30]', 'rs1[31]']},
+  {name: 'rs2 : UInt<1>',      wave: 'x...222|222x', data: ['rs2[0]', 'rs2[1]', '', 'rs2[29]', 'rs2[30]', 'rs2[31]']},
+  {name: 'rd : UInt<1>',       wave: 'x...222|222x', data: ['rd[0]',  'rd[1]',  '',  'rd[29]',  'rd[30]',  'rd[31]']},
+],
+config: { hscale: 2 }
+}
+
+
