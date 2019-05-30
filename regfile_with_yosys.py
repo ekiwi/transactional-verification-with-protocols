@@ -797,7 +797,7 @@ class RegfileSpec(Spec):
 			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
-		case_split = [(rd_enable, [Bool(True)])]
+		case_split = None # [(rd_enable, [Bool(True)])]
 
 		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
