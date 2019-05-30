@@ -124,11 +124,12 @@ class Solver:
 			asserts.append(Not(disjunction(*asserts)))
 			cases = asserts
 		else:
-			cases = []
+			cases = [Bool(True)]
 
 
 		#print(cases)
 
+		assert len(cases) > 0, "0 cases are trivially unsat"
 		detected_sat = False
 		for case_constraint in cases:
 			# add constraint
