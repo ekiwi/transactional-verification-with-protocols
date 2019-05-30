@@ -758,7 +758,7 @@ class RegfileSpec(Spec):
 		def mapping(state: State, x):
 			asserts = []
 			memory = state['memory']
-			for ii in range(32):
+			for ii in range(1, 32):
 				reg = Select(x, BV(ii, 5))
 				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
 				asserts.append(Equals(reg, reduce(BVConcat, iis)))
@@ -791,9 +791,12 @@ class RegfileSpec(Spec):
 		)
 		assert len(protocol) == 35
 
+		def is_zero(expr):
+			return Equals(expr, BV(0, expr.bv_width()))
+
 		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
-			rs1_data = Select(x, rs1_addr)
-			rs2_data = Select(x, rs2_addr)
+			rs1_data = Ite(is_zero(rs1_addr), BV(0, 32), Select(x, rs1_addr))
+			rs2_data = Ite(is_zero(rs2_addr), BV(0, 32), Select(x, rs2_addr))
 			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
