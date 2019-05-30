@@ -406,7 +406,7 @@ def get_type(expr):
 
 def is_bool(expr):
 	if expr.is_bool_constant() or expr.is_bool_op(): return True
-	if expr.is_bv_op(): return False
+	if expr.is_bv_constant() or expr.is_bv_op(): return False
 	if expr.is_symbol(): return expr.symbol_type().is_bool_type()
 	if expr.is_function_application():
 		return expr.function_name().symbol_type().return_type.is_bool_type()
