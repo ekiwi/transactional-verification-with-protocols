@@ -93,27 +93,69 @@ class Solver:
 			print("; custom cmds", file=ff)
 			script.serialize(outstream=ff, daggify=False)
 
-	def solve(self, filename=None, get_model=True, get_values=None):
+	def _check_sat(self, script, filename):
+		script.add(smtcmd.CHECK_SAT, [])
+		self._write_scrip(filename=filename, script=script)
+		script.commands.pop() # remove check sat
+		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True)
+		return r.stdout.decode('utf-8').strip()
+
+
+	def solve(self, filename=None, get_model=True, get_values=None, case_split=None):
+		case_split = default(case_split, list())
+		filename = default(filename, tempfile.mkstemp()[1])
+
+		# generate script
 		script = SmtLibScript()
 		for f in self.funs:
 			script.add(smtcmd.DECLARE_FUN, [f])
 		for a in self.assertions:
 			script.add(smtcmd.ASSERT, [a])
-		script.add(smtcmd.CHECK_SAT, [])
 
-		if filename is None:
-			(_, filename) = tempfile.mkstemp()
+		if len(case_split) > 0:
+			assert len(case_split) == 1, f"TODO: support multi variable case split! {case_split}"
 
-		self._write_scrip(filename=filename, script=script)
-		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8').strip()
-		if r == unsat:
+			var, vals = case_split[0]
+			# print(f"Case splitting on {var}")
+			asserts = []
+			for val in vals:
+				asserts.append(equal(var, val))
+			# TODO: only check negation if incomplete....
+			asserts.append(Not(disjunction(*asserts)))
+			cases = asserts
+		else:
+			cases = []
+
+
+		#print(cases)
+
+		detected_sat = False
+		for case_constraint in cases:
+			# add constraint
+			script.add(smtcmd.ASSERT, [case_constraint])
+
+			# check this case
+			r = self._check_sat(script=script, filename=filename)
+			# if it failes (i.e. we get sat, emit a counter example)
+			if r == sat:
+				detected_sat = True
+				break
+
+			# remove constraints
+			script.commands.pop()
+
+
+
+		# if all cases are unsat -> return unsat
+		if not detected_sat:
 			return unsat, None
-		assert r == sat, r
 
-
+		# if no model requested
 		if not get_model:
 			return sat, None
+
 		# get model
+		script.add(smtcmd.CHECK_SAT, [])
 		if get_values is None:
 			script.add(smtcmd.GET_MODEL, [])
 		else:
@@ -331,12 +373,13 @@ def default(expr, default):
 	return expr if expr is not None else default
 
 class Spec:
-	def __init__(self, arch_state=None, mapping=None, transactions=None, idle=None, invariances=None):
+	def __init__(self, arch_state=None, mapping=None, transactions=None, idle=None, invariances=None, case_split=None):
 		self.arch_state = default(arch_state, {})
 		self.transactions = default(transactions, [])
 		self.idle = default(idle, lambda state: Bool(True))
 		self.invariances = default(invariances, [])
 		self.mapping = default(mapping, lambda state: [Bool(True)])
+		self.case_split = default(case_split, list())
 
 
 def proof_no_mem_change(regfile: Module, solver: Solver):
@@ -390,6 +433,11 @@ def conjunction(*args):
 	assert len(args) > 0
 	if len(args) == 1: return args[0]
 	else: return reduce(And, args)
+
+def disjunction(*args):
+	assert len(args) > 0
+	if len(args) == 1: return args[0]
+	else: return reduce(Or, args)
 
 class ProofEngine:
 	def __init__(self, mod: Module, spec: Spec, solver: Solver, outdir=None):
@@ -551,7 +599,7 @@ class ProofEngine:
 			vcs = self.setup_transaction_proof(trans, cycles=cc)
 			max_vc = len(vcs)
 			for ii in range(max_vc - check_vcs):
-				with Proof(f"{trans.name}: {vcs[check_vcs]} ({cc} cycles)", self):
+				with Proof(f"{trans.name}: {vcs[check_vcs]} ({cc} cycles)", self, case_split=self.spec.case_split):
 					vc = self.setup_transaction_proof(trans, cycles=cc)[:check_vcs+1]
 					proven = vc[:-1]
 					if len(proven) > 0:
@@ -665,7 +713,7 @@ class ProofEngine:
 				read += self._read_all_trans(self.active_trans)
 		else:
 			read = None
-		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read)
+		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read, case_split=proof.case_split)
 		if res == sat and read is not None:
 			signals, trans = self.parse_cex(model, self.states)
 			with open('cex.csv', 'w') as ff:
@@ -686,10 +734,11 @@ class ProofEngine:
 
 
 class Proof:
-	def __init__(self, name: str, engine: ProofEngine, check = True):
+	def __init__(self, name: str, engine: ProofEngine, check = True, case_split=None):
 		self.engine = engine
 		self.name = name
 		self.check = check
+		self.case_split = case_split
 		self.ii = None
 	def __enter__(self):
 		self.ii = self.engine.start_proof(self)
@@ -748,13 +797,15 @@ class RegfileSpec(Spec):
 			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
+		case_split = [(rd_enable, [Bool(True)])]
+
 		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
 		idle = lambda state: And(Not(state['i_go']), Not(state['i_rd_en']))
 
 		# TODO: infer
 		inv = [lambda state: Equals(state['wcnt'], BV(0, 5))]
-		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv)
+		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv, case_split=case_split)
 
 class AdderSpec(Spec):
 	def __init__(self, bits):
