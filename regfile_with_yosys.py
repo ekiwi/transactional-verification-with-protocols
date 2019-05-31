@@ -808,7 +808,10 @@ class RegfileSpec(Spec):
 		idle = lambda state: And(Not(state['i_go']), Not(state['i_rd_en']))
 
 		# TODO: infer
-		inv = [lambda state: Equals(state['wcnt'], BV(0, 5))]
+		def x0_inv(state):
+			m = state['memory']
+			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
+		inv = [lambda state: Equals(state['wcnt'], BV(0, 5)), x0_inv]
 		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv, case_split=case_split)
 
 class AdderSpec(Spec):
