@@ -29,7 +29,7 @@ def verilog_to_smt2(filename: str, arrays: bool = True) -> str:
 		outfile = os.path.join(dd, "module.smt2")
 		mem = "memory -nomap -nordff" if arrays else "memory"
 		cmds = [f"read_verilog {filename}", "proc", "opt", mem, f"write_smt2 {outfile}"]
-		subprocess.run(['yosys', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
+		subprocess.run(['yosys', '-DRISCV_FORMAL', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		with open(outfile) as ff:
 			smt2_src = ff.read()
 	return smt2_src
@@ -181,6 +181,7 @@ class Module:
 		self._state = state
 		self.state_t = Type(name + "_s")
 		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
+		self._inital_fun = Symbol(name + "_i", FunctionType(BOOL, [self.state_t]))
 		self.smt2_src = smt2_src
 		self.reset = reset
 
@@ -221,6 +222,10 @@ class Module:
 		for state in states:
 			solver.fun(state.sym)
 		return states
+
+	def initial(self, solver: Solver, state: "State"):
+		assert state._mod == self
+		solver.add(Function(self._inital_fun, [state.sym]))
 
 	def transition(self, solver: Solver, states: List["State"]):
 		assert all(state._mod == self for state in states)
@@ -475,6 +480,8 @@ class ProofEngine:
 	def reset(self, cycles=1):
 		assert self.mod.reset is not None, f"Module {self.mod.name} does not have a reset signal declared!"
 		states = self.unroll(cycles)
+		# initial state:
+		self.mod.initial(self.solver, states[0])
 		# assert reset signal for N cycles
 		for s in states[:-1]:
 			self.solver.add(s[self.mod.reset])
