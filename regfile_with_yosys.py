@@ -805,7 +805,8 @@ class RegfileSpec(Spec):
 		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
 			rs1_data = Ite(is_zero(rs1_addr), BV(0, 32), Select(x, rs1_addr))
 			rs2_data = Ite(is_zero(rs2_addr), BV(0, 32), Select(x, rs2_addr))
-			x_n = Ite(rd_enable, Store(x, rd_addr, rd_data), x)
+			do_write = And(rd_enable, Not(Equals(rd_addr, BV(0,5))))
+			x_n = Ite(do_write, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
 		case_split = None # [(rd_enable, [Bool(True)])]
