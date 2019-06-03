@@ -10,6 +10,7 @@ from pysmt.shortcuts import *
 from pysmt.smtlib.script import SmtLibScript, smtcmd
 import operator
 import tabulate
+import time
 
 # local hack (TODO: remove)
 yosys_path = os.path.expanduser(os.path.join('~', 'd', 'yosys'))
@@ -101,7 +102,7 @@ class Solver:
 		return r.stdout.decode('utf-8').strip()
 
 
-	def solve(self, filename=None, get_model=True, get_values=None, case_split=None):
+	def solve(self, filename=None, get_model=True, get_values=None, case_split=None, print_time=False):
 		case_split = default(case_split, list())
 		filename = default(filename, tempfile.mkstemp()[1])
 
@@ -140,7 +141,11 @@ class Solver:
 				print(f"assuming: {case_constraint}")
 
 			# check this case
+			start = time.time()
 			r = self._check_sat(script=script, filename=filename)
+			delta = time.time() - start
+			if print_time:
+				print(f"Check with {self.bin} returned {r} and took {delta}")
 			# if it failes (i.e. we get sat, emit a counter example)
 			if r == sat:
 				detected_sat = True
@@ -166,8 +171,12 @@ class Solver:
 		else:
 			for vv in get_values:
 				script.add(smtcmd.GET_VALUE, [vv])
+		start = time.time()
 		self._write_scrip(filename=filename, script=script)
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8')
+		delta = time.time() - start
+		if print_time:
+			print(f"Generating a CEX with {self.bin} took {delta}")
 		return sat, r
 
 class Module:
@@ -598,7 +607,7 @@ class ProofEngine:
 
 		if not always_incremental:
 			# 1.) attempt a full proof
-			with Proof(f"transaction {trans.name} is correct", self, check=False, case_split=self.spec.case_split):
+			with Proof(f"transaction {trans.name} is correct", self, check=False, case_split=self.spec.case_split, print_time=True):
 				vc = self.setup_transaction_proof(trans)
 				self.solver.add(Not(conjunction(*vc)))
 			if self.last_proof_accepted:
@@ -611,7 +620,7 @@ class ProofEngine:
 			vcs = self.setup_transaction_proof(trans, cycles=cc)
 			max_vc = len(vcs)
 			for ii in range(max_vc - check_vcs):
-				with Proof(f"{trans.name}: {vcs[check_vcs]} ({cc} cycles)", self, case_split=self.spec.case_split):
+				with Proof(f"{trans.name}: {vcs[check_vcs]} ({cc} cycles)", self, case_split=self.spec.case_split, print_time=True):
 					vc = self.setup_transaction_proof(trans, cycles=cc)[:check_vcs+1]
 					proven = vc[:-1]
 					if len(proven) > 0:
@@ -725,7 +734,7 @@ class ProofEngine:
 				read += self._read_all_trans(self.active_trans)
 		else:
 			read = None
-		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read, case_split=proof.case_split)
+		res, model = self.solver.solve(filename=filename, get_model=True, get_values=read, case_split=proof.case_split, print_time=proof.print_time)
 		if res == sat and read is not None:
 			signals, trans = self.parse_cex(model, self.states)
 			with open('cex.csv', 'w') as ff:
@@ -746,11 +755,12 @@ class ProofEngine:
 
 
 class Proof:
-	def __init__(self, name: str, engine: ProofEngine, check = True, case_split=None):
+	def __init__(self, name: str, engine: ProofEngine, check = True, case_split=None, print_time=False):
 		self.engine = engine
 		self.name = name
 		self.check = check
 		self.case_split = case_split
+		self.print_time = print_time
 		self.ii = None
 	def __enter__(self):
 		self.ii = self.engine.start_proof(self)
