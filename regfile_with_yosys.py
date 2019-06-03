@@ -109,22 +109,23 @@ class Solver:
 		script = SmtLibScript()
 		for f in self.funs:
 			script.add(smtcmd.DECLARE_FUN, [f])
-		for a in self.assertions:
-			script.add(smtcmd.ASSERT, [a])
 
 		if len(case_split) > 0:
-			assert len(case_split) == 1, f"TODO: support multi variable case split! {case_split}"
+			# TODO: tghis check only works for unconstrained variables!
+			# check for completeness
+			script.add(smtcmd.ASSERT, [Not(disjunction(*case_split))])
+			r = self._check_sat(script=script, filename=filename)
+			if r == sat:
+				constraints = '\n'.join(str(c) for c in case_split)
+				raise RuntimeError(f"Incomplete case splitting:\n{constraints}")
+			script.commands.pop()
 
-			var, vals = case_split[0]
-			# print(f"Case splitting on {var}")
-			asserts = []
-			for val in vals:
-				asserts.append(equal(var, val))
-			# TODO: only check negation if incomplete....
-			asserts.append(Not(disjunction(*asserts)))
-			cases = asserts
+			cases = case_split
 		else:
 			cases = [Bool(True)]
+
+		for a in self.assertions:
+			script.add(smtcmd.ASSERT, [a])
 
 
 		#print(cases)
@@ -134,6 +135,9 @@ class Solver:
 		for case_constraint in cases:
 			# add constraint
 			script.add(smtcmd.ASSERT, [case_constraint])
+
+			if len(case_split) > 0:
+				print(f"assuming: {case_constraint}")
 
 			# check this case
 			r = self._check_sat(script=script, filename=filename)
@@ -587,14 +591,14 @@ class ProofEngine:
 		self.solver.add(conjunction(*self.spec.mapping(state=state, **arch_state)))
 		return arch_state
 
-	def proof_transaction(self, trans: Transaction, always_incremental = True):
+	def proof_transaction(self, trans: Transaction, always_incremental = False):
 		assert self.active_trans is None
 		self.active_trans = trans
 		cycles = len(trans.proto)
 
 		if not always_incremental:
 			# 1.) attempt a full proof
-			with Proof(f"transaction {trans.name} is correct", self, check=False):
+			with Proof(f"transaction {trans.name} is correct", self, check=False, case_split=self.spec.case_split):
 				vc = self.setup_transaction_proof(trans)
 				self.solver.add(Not(conjunction(*vc)))
 			if self.last_proof_accepted:
@@ -766,7 +770,7 @@ class RegfileSpec(Spec):
 		def mapping(state: State, x):
 			asserts = []
 			memory = state['memory']
-			for ii in range(1, 32):
+			for ii in range(0, 32):
 				reg = Select(x, BV(ii, 5))
 				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
 				asserts.append(Equals(reg, reduce(BVConcat, iis)))
@@ -774,6 +778,7 @@ class RegfileSpec(Spec):
 				# 	a = Select(memory, BV(ii*16 + jj, 9))
 				# 	b = BVExtract(reg, start=jj*2, end=jj*2+1)
 				# 	asserts.append(Equals(a, b))
+			#asserts.append(Equals(Select(x, BV(0, 5)), BV(0, 32)))
 			return asserts
 
 		# build transaction
@@ -809,7 +814,7 @@ class RegfileSpec(Spec):
 			x_n = Ite(do_write, Store(x, rd_addr, rd_data), x)
 			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
 
-		case_split = None # [(rd_enable, [Bool(True)])]
+		case_split = [And(rd_enable, Equals(rd_addr, BV(ii, 5))) for ii in range(32)] + [Not(rd_enable)]
 
 		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
