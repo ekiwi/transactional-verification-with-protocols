@@ -311,11 +311,11 @@ class ProofEngine:
 		signals = [dict() for _ in range(len(states))]
 		trans = {}
 
-		prefix = rf'\(\(\(\|{self.mod.name}_n ([a-zA-Z_0-9]+)\|\s+([a-zA-Z_0-9]+)\)\s+'
+		prefix = rf'\(\(\(\|{self.mod.name}_n ([a-zA-Z_0-9\.]+)\|\s+([a-zA-Z_0-9\.]+)\)\s+'
 		suffix = r'\)\)'
 		bv_bool = '(#b[01]+|false|true)'
 		re_signal = re.compile(prefix + bv_bool + suffix)
-		re_trans = re.compile(f'\(\(([a-zA-Z_0-9]+)\s+' + bv_bool + suffix)
+		re_trans = re.compile(f'\(\(([a-zA-Z_0-9\.]+)\s+' + bv_bool + suffix)
 
 		def parse_value(vv):
 			if vv == 'true': return "1"
