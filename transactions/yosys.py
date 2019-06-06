@@ -3,7 +3,7 @@
 
 import subprocess, os, re, tempfile
 from collections import defaultdict
-
+from typing import List
 
 # local hack (TODO: remove)
 yosys_path = os.path.expanduser(os.path.join('~', 'd', 'yosys'))
@@ -17,12 +17,14 @@ def require_yosys() -> str:
 	version = re.match(r'Yosys (\d+\.\d+\+\d+)', r.stdout.decode('utf-8')).group(1)
 	return version
 
-def verilog_to_smt2(filename: str, arrays: bool = True) -> str:
-	assert os.path.isfile(filename)
+def verilog_to_smt2(filenames: List[str], top: str,  arrays: bool = True) -> str:
+	for ff in filenames:
+		assert os.path.isfile(ff), ff
 	with tempfile.TemporaryDirectory() as dd:
 		outfile = os.path.join(dd, "module.smt2")
 		mem = "memory -nomap -nordff" if arrays else "memory"
-		cmds = [f"read_verilog {filename}", "proc", "opt", mem, f"write_smt2 {outfile}"]
+		cmds  = [f"read_verilog {ff}" for ff in filenames]
+		cmds += [f"hierarchy -top {top}", "proc", "opt", "flatten", "opt", mem, f"write_smt2 {outfile}"]
 		subprocess.run(['yosys', '-DRISCV_FORMAL', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		with open(outfile) as ff:
 			smt2_src = ff.read()

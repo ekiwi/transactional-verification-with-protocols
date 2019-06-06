@@ -7,9 +7,10 @@ from .utils import *
 
 class Module:
 	@staticmethod
-	def load(verilog_file: str, reset:Optional[str] = None):
-		assert os.path.isfile(verilog_file)
-		smt2_src = verilog_to_smt2(verilog_file)
+	def load(name: str, verilog_files: List[str], reset:Optional[str] = None):
+		for ff in verilog_files:
+			assert os.path.isfile(ff), ff
+		smt2_src = verilog_to_smt2(verilog_files, top=name, arrays=True)
 		smt2_names = parse_yosys_smt2(smt2_src, BVSignal.from_yosys, ArraySignal.from_yosys)
 		return Module(**smt2_names, smt2_src=smt2_src, reset=reset)
 

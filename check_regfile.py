@@ -77,7 +77,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	regfile = Module.load(regfile_v, reset='i_rst')
+	regfile = Module.load('serv_regfile', [regfile_v], reset='i_rst')
 	mod = regfile
 	spec = RegfileSpec()
 
