@@ -20,19 +20,17 @@ class AluSpec(Spec):
 			return basic | ((ctrl * bits) >> 1)
 		return basic
 
-	def Add(self, bits):
+	def Op(self, name, BVOperation, ctrl, bits):
 		a = Symbol('a', BVType(bits))
 		b = Symbol('b', BVType(bits))
 		c = Symbol('c', BVType(bits))
-
-		def semantics(a, b):
-			c = BVAdd(a, b)
-			return {'c': c}
-
-		ctrl = Map('i_sub', Bool(False)) | Map('i_rd_sel', BV(0, 2))
+		semantics = lambda a, b: {'c': BVOperation(a, b)}
 		protocol = self.BaseProtocol(a, b, c, ctrl=ctrl)
+		return Transaction(name=f"{name}<{bits}>", args=[a, b], ret_args=[c], semantics=semantics, proto=protocol)
 
-		return Transaction(name=f"Add<{bits}>", args=[a, b], ret_args=[c], semantics=semantics, proto=protocol)
+	def Add(self, bits):
+		ctrl = Map('i_sub', Bool(False)) | Map('i_rd_sel', BV(0, 2))
+		return self.Op('Add', BVAdd, ctrl, bits)
 
 src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg']]
 
