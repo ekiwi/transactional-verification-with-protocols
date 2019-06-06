@@ -51,8 +51,10 @@ class Protocol:
 		m = self.mappings + [dict() for _ in range(other)]
 		return Protocol(mappings=m)
 
-def BitSerial(signal: str, sym) -> Protocol:
-	return Protocol([{signal: BVExtract(sym, ii, ii)} for ii in range(sym.bv_width())])
+def BitSerial(signal: str, sym, max_bits: Optional[int] = None) -> Protocol:
+	max_bits = default(max_bits, sym.bv_width())
+	bits = min(max_bits, sym.bv_width())
+	return Protocol([{signal: BVExtract(sym, ii, ii)} for ii in range(bits)])
 
 def Repeat(signal: str, sym, cycles) -> Protocol:
 	return Protocol([{signal: sym}] * cycles)

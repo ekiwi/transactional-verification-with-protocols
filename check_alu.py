@@ -60,6 +60,26 @@ class AluSpec(Spec):
 		return [self.Op(name, bvop, ctrl = Map('i_rd_sel', ALU_RESULT_BOOL) | Map('i_bool_op', op))
 			for name, bvop, op in ops]
 
+	def Shifts(self) -> List[Transaction]:
+		assert self.bits == 32
+		print("TODO: SRL & SRA")
+
+		shift_right = Bool(False)
+
+		a = Symbol('a', BVType(self.bits))
+		b = Symbol('b', BVType(5))
+		c = Symbol('c', BVType(self.bits))
+
+		# reset ALU
+		phase_idle = Map('i_en', Bool(False))
+		# load shift amount
+		phase_init = (
+			(Map('i_shmat_en', Bool(True)) * 5)  |
+			BitSerial('i_op_b', b)               |
+			(Map('i_sh_right', shift_right) * 5)
+		)
+
+
 
 src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg']]
 
