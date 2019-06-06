@@ -4,17 +4,26 @@
 import os
 from pysmt.shortcuts import *
 from transactions import *
+from typing import List
+from functools import reduce
 
 ALU_RESULT_ADD  = BV(0, 2)
 ALU_RESULT_SR   = BV(1, 2)
 ALU_RESULT_LT   = BV(2, 2)
 ALU_RESULT_BOOL = BV(3, 2)
 
+BOOL_OP_XOR = BV(0, 2)
+BOOL_OP_OR  = BV(2, 2)
+BOOL_OP_AND = BV(3, 2)
+
+def flatten(ll: List[list]) -> list:
+	return reduce(lambda a, b: a + b, ll)
+
 class AluSpec(Spec):
 	def __init__(self, bits=32):
 		self.bits = bits
-		transactions = [self.Add, self.Sub]
-		super().__init__(transactions=[tt() for tt in transactions])
+		transactions = [self.Add, self.Sub, self.Bitwise]
+		super().__init__(transactions=flatten([tt() for tt in transactions]))
 
 	def BaseProtocol(self, a, b, c, ctrl=None):
 		bits = a.bv_width()
@@ -34,13 +43,23 @@ class AluSpec(Spec):
 		protocol = self.BaseProtocol(a, b, c, ctrl=ctrl)
 		return Transaction(name=f"{name}<{self.bits}>", args=[a, b], ret_args=[c], semantics=semantics, proto=protocol)
 
-	def Add(self):
+	def Add(self) -> List[Transaction]:
 		ctrl = Map('i_sub', Bool(False)) | Map('i_rd_sel', ALU_RESULT_ADD)
-		return self.Op('Add', BVAdd, ctrl)
+		return [self.Op('Add', BVAdd, ctrl)]
 
-	def Sub(self):
+	def Sub(self) -> List[Transaction]:
 		ctrl = Map('i_sub', Bool(True)) | Map('i_rd_sel', ALU_RESULT_ADD)
-		return self.Op('Sub', BVSub, ctrl)
+		return [self.Op('Sub', BVSub, ctrl)]
+
+	def Bitwise(self) -> List[Transaction]:
+		ops = [
+			('Or',  BVOr,  BOOL_OP_OR),
+			('Xor', BVXor, BOOL_OP_XOR),
+			('And', BVAnd, BOOL_OP_AND),
+		]
+		return [self.Op(name, bvop, ctrl = Map('i_rd_sel', ALU_RESULT_BOOL) | Map('i_bool_op', op))
+			for name, bvop, op in ops]
+
 
 src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg']]
 
