@@ -24,6 +24,8 @@ class Module:
 		self._inital_fun = Symbol(name + "_i", FunctionType(BOOL, [self.state_t]))
 		self.smt2_src = smt2_src
 		self.reset = reset
+		if self.reset is not None:
+			assert self.reset in self._inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self._inputs.keys())}"
 
 	@property
 	def name(self): return self._name
