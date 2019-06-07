@@ -106,7 +106,7 @@ class ProofEngine:
 		self.proof_count = 0
 		self.states = []
 		self.active_proof = None
-		self.signals = list(self.mod.inputs) + list(self.mod.outputs) + list(self.mod.non_mem_state)
+		self.signals = list(self.mod.inputs) + list(self.mod.outputs) + list(self.mod.non_mem_state) + list(self.mod.wires)
 		self.last_proof_accepted = False
 		self.active_trans : Optional[Transaction] = None
 

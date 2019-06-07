@@ -7,18 +7,19 @@ from .utils import *
 
 class Module:
 	@staticmethod
-	def load(name: str, verilog_files: List[str], reset:Optional[str] = None):
+	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True):
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
-		smt2_src = verilog_to_smt2(verilog_files, top=name, arrays=True)
+		smt2_src = verilog_to_smt2(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
 		smt2_names = parse_yosys_smt2(smt2_src, BVSignal.from_yosys, ArraySignal.from_yosys)
 		return Module(**smt2_names, smt2_src=smt2_src, reset=reset)
 
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], smt2_src: str, reset: Optional[str] = None):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, reset: Optional[str] = None):
 		self._name = name
 		self._inputs = inputs
 		self._outputs = outputs
 		self._state = state
+		self._wires = wires
 		self.state_t = Type(name + "_s")
 		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
 		self._inital_fun = Symbol(name + "_i", FunctionType(BOOL, [self.state_t]))
@@ -42,6 +43,9 @@ class Module:
 	@property
 	def outputs(self):
 		return self._outputs.values()
+	@property
+	def wires(self):
+		return self._wires.values()
 	@property
 	def state(self):
 		return self._state.values()
@@ -76,7 +80,7 @@ class Module:
 			solver.add(Function(self._transition_fun, [states[ii].sym, states[ii+1].sym]))
 
 	def _get_signal(self, name: str) -> Optional["Signal"]:
-		for dd in [self._inputs, self._outputs, self._state]:
+		for dd in [self._inputs, self._outputs, self._state, self._wires]:
 			if name in dd:
 				return dd[name]
 		return None
