@@ -2,7 +2,7 @@ import os
 from typing import List,  Dict, Optional
 from pysmt.shortcuts import *
 
-from .yosys import verilog_to_smt2, parse_yosys_smt2
+from .yosys import verilog_to_smt2_and_btor, parse_yosys_smt2, parse_yosys_btor
 from .utils import *
 
 class Module:
@@ -10,8 +10,10 @@ class Module:
 	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True):
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
-		smt2_src = verilog_to_smt2(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
+		smt2_src, btor_src = verilog_to_smt2_and_btor(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
 		smt2_names = parse_yosys_smt2(smt2_src, BVSignal.from_yosys, ArraySignal.from_yosys)
+		#print(btor_src)
+		parse_yosys_btor(btor_src, BVSignal.from_yosys, ArraySignal.from_yosys)
 		return Module(**smt2_names, smt2_src=smt2_src, reset=reset)
 
 	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, reset: Optional[str] = None):
@@ -60,6 +62,7 @@ class Module:
 		dd += ["Inputs:"] + render_fields(self._inputs) + [""]
 		dd += ["Outputs:"] + render_fields(self._outputs) + [""]
 		dd += ["State:"] + render_fields(self._state) + [""]
+		dd += ["Wires:"] + render_fields(self._wires) + [""]
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
