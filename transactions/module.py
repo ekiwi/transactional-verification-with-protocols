@@ -2,8 +2,19 @@ import os
 from typing import List,  Dict, Optional
 from pysmt.shortcuts import *
 
-from .yosys import verilog_to_smt2_and_btor, parse_yosys_smt2, parse_yosys_btor
+from .yosys import verilog_to_smt2_and_btor, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor
 from .utils import *
+
+def to_signal(name, typ, nid):
+	if typ[0] == 'bv' and typ[1] == 1:
+		return BoolSignal(name, nid)
+	elif typ[0] == 'bv':
+		return BVSignal(name, typ[1], nid)
+	elif typ[0] == 'array':
+		assert typ[1][0] == 'bv'
+		assert typ[2][0] == 'bv'
+		return ArraySignal(name, address_bits=typ[2][1], data_bits=typ[1][1], nid=nid)
+
 
 class Module:
 	@staticmethod
@@ -11,10 +22,12 @@ class Module:
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
 		smt2_src, btor_src = verilog_to_smt2_and_btor(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
-		smt2_names = parse_yosys_smt2(smt2_src, BVSignal.from_yosys, ArraySignal.from_yosys)
-		#print(btor_src)
-		parse_yosys_btor(btor_src, BVSignal.from_yosys, ArraySignal.from_yosys)
-		return Module(**smt2_names, smt2_src=smt2_src, reset=reset)
+		smt2_names = parse_yosys_smt2(smt2_src)
+		btor2_names = parse_yosys_btor(btor_src)
+		module_data = merge_smt2_and_btor(smt2_names, btor2_names)
+		for cat in ['inputs', 'outputs', 'state', 'wires']:
+			module_data[cat] = {name: to_signal(name, *a) for name, a in module_data[cat].items()}
+		return Module(**module_data, smt2_src=smt2_src, reset=reset)
 
 	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, reset: Optional[str] = None):
 		self._name = name
@@ -99,33 +112,27 @@ class Module:
 		return Function(Symbol(fn, ft), [state.sym])
 
 class Signal:
-	def __init__(self, name: str):
+	def __init__(self, name: str, nid: int = -1):
 		self.name = name
 		self.tpe = None
+		self.nid = nid
 
 	def __str__(self):
 		return f"{self.name} : ?"
 
 class BVSignal(Signal):
-	@staticmethod
-	def from_yosys(name: str, bits: str):
-		bits = int(bits)
-		if bits == 1:
-			return BoolSignal(name=name)
-		assert bits > 1
-		return BVSignal(name=name, bits=bits)
-
-	def __init__(self, name: str, bits: int):
-		super().__init__(name=name)
+	def __init__(self, name: str, bits: int, nid: int = -1):
+		super().__init__(name=name, nid=nid)
 		self.bits = bits
 		self.tpe = BVType(bits)
+
 
 	def __str__(self):
 		return f"{self.name} : bv<{self.bits}>"
 
 class BoolSignal(Signal):
-	def __init__(self, name: str):
-		super().__init__(name=name)
+	def __init__(self, name: str, nid: int = -1):
+		super().__init__(name=name, nid=nid)
 		self.tpe = BOOL
 		self.bits = 1
 	def __str__(self):
@@ -133,8 +140,8 @@ class BoolSignal(Signal):
 
 # https://www.reddit.com/r/yosys/comments/39t2fl/new_support_for_memories_in_write_smt2_via_arrays/
 class ArraySignal(Signal):
-	def __init__(self, name: str, address_bits: int, data_bits: int):
-		super().__init__(name=name)
+	def __init__(self, name: str, address_bits: int, data_bits: int, nid: int = -1):
+		super().__init__(name=name, nid=nid)
 		self.name = name
 		self.address_bits = address_bits
 		self.data_bits = data_bits

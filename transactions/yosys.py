@@ -27,7 +27,7 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 		wires = "" if ignore_wires else "-wires"
 		cmds  = [f"read_verilog {ff}" for ff in filenames]
 		cmds += [f"hierarchy -top {top}", "proc", "opt", "flatten", "opt", mem, f"write_smt2 {wires} {outfile}"]
-		cmds += [f"write_btor {btor_out}"]
+		cmds += [f"write_btor -v {btor_out}"]
 		subprocess.run(['yosys', '-DRISCV_FORMAL', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		with open(outfile) as ff:
 			smt2_src = ff.read()
@@ -35,8 +35,8 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 			btor_src = ff.read()
 	return smt2_src, btor_src
 
-def parse_yosys_smt2(smt2_src: str, mk_bv_signal, mk_array_signal) -> dict:
-	res = {
+def parse_yosys_smt2(smt2_src: str) -> dict:
+	grammar = {
 		'inputs': re.compile(r'; yosys-smt2-input ([^\s]+) ([\d+])'),
 		'outputs': re.compile(r'; yosys-smt2-output ([^\s]+) ([\d+])'),
 		'registers': re.compile(r'; yosys-smt2-register ([^\s]+) ([\d+])'),
@@ -44,26 +44,21 @@ def parse_yosys_smt2(smt2_src: str, mk_bv_signal, mk_array_signal) -> dict:
 		'modules': re.compile(r'; yosys-smt2-module ([^\s]+)'),
 		'wires': re.compile(r'; yosys-smt2-wire ([^\s]+) ([\d+])'),
 	}
-	results = defaultdict(list)
+	res = defaultdict(list)
 	for line in smt2_src.splitlines():
-		for name, regex in res.items():
+		for name, regex in grammar.items():
 			m = regex.match(line)
 			if m is not None:
-				results[name].append(m.groups())
-	assert len(results['modules']) == 1, "Currently this software only works for single modules!"
-	results['name'] = results['modules'][0][0]
+				res[name].append(m.groups())
+	assert len(res['modules']) == 1, "Currently this software only works for single modules!"
+	module = {'name': res['modules'][0][0]}
 	for key in ['inputs', 'outputs', 'registers', 'wires']:
-		results[key] = { ii[0]: mk_bv_signal(*ii) for ii in results[key]}
-	results['memories'] = { ii[0]: mk_array_signal(*ii) for ii in results['memories']}
-	results['state'] = {**results['memories'], **results['registers']}
-	results = dict(results)
-	results.pop('modules')
-	results.pop('memories')
-	results.pop('registers')
-	return results
+		module[key] = { ii[0]: (('bv', int(ii[1])), -1)  for ii in res[key]}
+	module['memories'] = { ii[0]: (('array', ('bv', int(ii[1])), ('bv', int(ii[2]))), -1) for ii in res['memories']}
+	return module
 
-def parse_yosys_btor(btor_src: str, mk_bv_signal, mk_array_signal) -> dict:
-	res = [
+def parse_yosys_btor(btor_src: str) -> dict:
+	grammar = [
 		('input', {'input'}, ('sid', 'str')),
 		('state', {'state'}, ('sid', 'str')),
 		('output', {'output'}, ('nid', 'str')),
@@ -79,13 +74,13 @@ def parse_yosys_btor(btor_src: str, mk_bv_signal, mk_array_signal) -> dict:
 		('const', {'const'}, ('sid', 'int'))
 
 	]
-	results = defaultdict(list)
+	res = defaultdict(dict)
 	sorts = {}
 	nodes = {}
 
 	for line in btor_src.splitlines():
 		if line.strip().startswith(';'): continue
-		parts = line.split(' ')
+		parts = line.strip().split(' ')
 		ii = int(parts[0])
 		cmd = parts[1]
 		if cmd == 'sort':
@@ -96,7 +91,7 @@ def parse_yosys_btor(btor_src: str, mk_bv_signal, mk_array_signal) -> dict:
 				entry = ('array', sorts[int(parts[3])], sorts[int(parts[4])])
 			sorts[ii] = entry
 		else:
-			for name, keywords, form in res:
+			for name, keywords, form in grammar:
 				if cmd in keywords:
 					entry = []
 					for value, ff in zip(parts[2:], form):
@@ -109,12 +104,33 @@ def parse_yosys_btor(btor_src: str, mk_bv_signal, mk_array_signal) -> dict:
 
 					if len(parts) > 2 + len(form):
 						name = parts[2+len(form)]
-						results['wires'].append((ii, entry[0], name))
+						res['wires'][name] = (entry[0], ii)
 
 					# for outputs, get type
 					if cmd == 'output':
-						entry = [nodes[entry[0]][1]] + entry
-					if name in {'output', 'input', 'state'}:
-						results[name + "s"].append(tuple([ii] + entry))
+						entry = [nodes[entry[0]][1], entry[1]]
+					if name in {'state', 'output', 'input'}:
+						key = "register" if entry[0][0] == 'bv' else "memorie"
+						key = key if name == 'state' else name
+						# filter out unnamed signals
+						if len(entry) > 1:
+							res[key + "s"][entry[1]] = (entry[0], ii)
+	return dict(res)
 
-	return dict(results)
+def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
+	mod = {'name': smt2_names['name']}
+	for cat in ['inputs', 'outputs', 'registers', 'memories', 'wires']:
+		mod[cat] = {}
+		for name, args in smt2_names[cat].items():
+			if name not in btor_names[cat] and cat in {'registers', 'wires'}:
+				print(f"WARN: {cat} {name} missing form btor. Ignoring for now...")
+				continue
+			assert name in btor_names[cat], f"{cat} {name} missing form btor"
+			bnode = btor_names[cat][name]
+			assert args[0] ==  bnode[0], f"types of {cat} {name} do not match: {args[0]} vs {bnode[0]}"
+			assert bnode[1] > 0, f"node id of {cat} {name} is {bnode[1]} <= 0"
+			mod[cat][name] = bnode
+	mod['state'] = { **mod['registers'], **mod['memories'] }
+	mod.pop('registers')
+	mod.pop('memories')
+	return mod
