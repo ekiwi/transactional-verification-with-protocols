@@ -84,9 +84,10 @@ def main() -> int:
 	reset_env()
 	print(f"Trying to proof {mod.name}")
 	print(mod)
-	solver = Solver(mod.smt2_src)
-	engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
-	engine.proof_all()
+	#solver = Solver(mod.smt2_src)
+	#ee = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
+	ee = MCProofEngine(mod=mod, spec=spec, outdir="btor2")
+	ee.proof_all()
 
 	return 0
 

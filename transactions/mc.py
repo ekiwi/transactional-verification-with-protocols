@@ -3,7 +3,7 @@
 
 import subprocess, os, tempfile, time
 from typing import Optional
-from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, substitute
+from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
 from pysmt.walkers import DagWalker
 
 from .module import Module, State
@@ -112,6 +112,10 @@ class BtorMC:
 			typ, ii = data
 			if typ[0] == 'bv' and typ[1] == 1: typ = BOOL
 			elif typ[0] == 'bv': typ = BVType(typ[1])
+			elif typ[0] == 'array':
+				addr = BVType(typ[1][1])
+				data = BVType(typ[2][1])
+				typ = ArrayType(addr, data)
 			else: raise RuntimeError(f"TODO: {typ}")
 			self._name_to_ii[name] = ii
 			self._ii_to_sym[ii] = Symbol(name, typ)
@@ -144,8 +148,11 @@ class BtorMC:
 	def state(self, symbol: Symbol, next: Optional = None, init: Optional = None):
 		assert symbol.symbol_name() not in self._name_to_ii, f"symbol {symbol} already exists!"
 		typ, name = symbol.symbol_type(), symbol.symbol_name()
-		assert typ.is_bv_type(), f"unsupported type: {typ}"
-		bits = typ.width
+		if typ.is_bool_type():
+			bits = 1
+		else:
+			assert typ.is_bv_type(), f"unsupported type {typ}: {symbol}"
+			bits = typ.width
 
 		# we need to declare the init expression before the state
 		if init is not None:
