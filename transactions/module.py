@@ -27,9 +27,9 @@ class Module:
 		module_data = merge_smt2_and_btor(smt2_names, btor2_names)
 		for cat in ['inputs', 'outputs', 'state', 'wires']:
 			module_data[cat] = {name: to_signal(name, *a) for name, a in module_data[cat].items()}
-		return Module(**module_data, smt2_src=smt2_src, reset=reset)
+		return Module(**module_data, smt2_src=smt2_src, btor2_src=btor_src, reset=reset)
 
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, reset: Optional[str] = None):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, reset: Optional[str] = None):
 		self._name = name
 		self._inputs = inputs
 		self._outputs = outputs
@@ -39,6 +39,7 @@ class Module:
 		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
 		self._inital_fun = Symbol(name + "_i", FunctionType(BOOL, [self.state_t]))
 		self.smt2_src = smt2_src
+		self.btor2_src = btor2_src
 		self.reset = reset
 		if self.reset is not None:
 			assert self.reset in self._inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self._inputs.keys())}"

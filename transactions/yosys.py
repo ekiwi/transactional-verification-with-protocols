@@ -27,7 +27,7 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 		wires = "" if ignore_wires else "-wires"
 		cmds  = [f"read_verilog {ff}" for ff in filenames]
 		cmds += [f"hierarchy -top {top}", "proc", "opt", "flatten", "opt", mem, f"write_smt2 {wires} {outfile}"]
-		cmds += [f"write_btor -v {btor_out}"]
+		cmds += [f"write_btor {btor_out}"]
 		subprocess.run(['yosys', '-DRISCV_FORMAL', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		with open(outfile) as ff:
 			smt2_src = ff.read()
@@ -62,6 +62,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 		('input', {'input'}, ('sid', 'str')),
 		('state', {'state'}, ('sid', 'str')),
 		('output', {'output'}, ('nid', 'str')),
+		('next', {'next'}, ('nid', 'nid')),
 		('op', {'not', 'inc', 'dec', 'neg', 'redand', 'redor', 'redxor'}, ('sid', 'nid')),
 		('op', {'uext', 'sext'}, ('sid', 'nid', 'int')),
 		('op', {'slice'}, ('sid', 'nid', 'int', 'int')),
@@ -77,6 +78,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 	res = defaultdict(dict)
 	sorts = {}
 	nodes = {}
+	ii = -1
 
 	for line in btor_src.splitlines():
 		if line.strip().startswith(';'): continue
@@ -91,6 +93,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 				entry = ('array', sorts[int(parts[3])], sorts[int(parts[4])])
 			sorts[ii] = entry
 		else:
+			unknown = True
 			for name, keywords, form in grammar:
 				if cmd in keywords:
 					entry = []
@@ -115,6 +118,11 @@ def parse_yosys_btor(btor_src: str) -> dict:
 						# filter out unnamed signals
 						if len(entry) > 1:
 							res[key + "s"][entry[1]] = (entry[0], ii)
+					unknown = False
+					break
+			assert not unknown, f"command {cmd} is unknown"
+	res['ii'] = ii
+	res['sorts'] = sorts
 	return dict(res)
 
 def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
