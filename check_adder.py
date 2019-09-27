@@ -7,18 +7,18 @@ from transactions import *
 
 class AdderSpec(Spec):
 	def __init__(self, bits):
-		a = Symbol('a', BVType(bits))
-		b = Symbol('b', BVType(bits))
-		c = Symbol('c', BVType(bits))
-		carry = Symbol('carry', BVType(1))
+		a = Symbol('spec_a', BVType(bits))
+		b = Symbol('spec_b', BVType(bits))
+		c = Symbol('spec_c', BVType(bits))
+		carry = Symbol('spec_carry', BVType(1))
 		protocol = Map('clr', Bool(True)) + (BitSerial('a', a) | BitSerial('b', b) | BitSerial('q', c) |
 											 Repeat('clr', Bool(False), bits))
 		protocol.mappings[-1]['o_v'] = carry
 
-		def semantics(a, b):
-			c = BVAdd(a, b)
-			carry = BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)
-			return {'c': c, 'carry': carry}
+		def semantics(spec_a, spec_b):
+			c = BVAdd(spec_a, spec_b)
+			carry = BVExtract(BVAdd(BVZExt(spec_a, 1), BVZExt(spec_b, 1)), bits, bits)
+			return {'spec_c': c, 'spec_carry': carry}
 
 		transactions = [Transaction(name=f"add{bits}", args=[a,b], ret_args=[c,carry], semantics=semantics, proto=protocol)]
 
@@ -31,7 +31,7 @@ def main() -> int:
 	print(f"Using yosys {version}")
 
 	mod = Module.load('ser_add', [add_v], reset='rst')
-	spec = AdderSpec(32)
+	spec = AdderSpec(2)
 
 	reset_env()
 	print(f"Trying to proof {mod.name}")

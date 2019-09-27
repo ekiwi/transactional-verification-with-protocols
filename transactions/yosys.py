@@ -62,7 +62,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 		('input', {'input'}, ('sid', 'str')),
 		('state', {'state'}, ('sid', 'str')),
 		('output', {'output'}, ('nid', 'str')),
-		('next', {'next'}, ('nid', 'nid')),
+		('next', {'next'}, ('sid', 'nid', 'nid')),
 		('op', {'not', 'inc', 'dec', 'neg', 'redand', 'redor', 'redxor'}, ('sid', 'nid')),
 		('op', {'uext', 'sext'}, ('sid', 'nid', 'int')),
 		('op', {'slice'}, ('sid', 'nid', 'int', 'int')),
@@ -110,9 +110,10 @@ def parse_yosys_btor(btor_src: str) -> dict:
 						res['wires'][name] = (entry[0], ii)
 
 					# for outputs, get type
-					if cmd == 'output':
-						entry = [nodes[entry[0]][1], entry[1]]
-					if name in {'state', 'output', 'input'}:
+					if name == 'output':
+						name = entry[1]
+						res['outputs'][name] = (nodes[entry[0]][1], nodes[entry[0]][2])
+					elif name in {'state', 'output', 'input'}:
 						key = "register" if entry[0][0] == 'bv' else "memorie"
 						key = key if name == 'state' else name
 						# filter out unnamed signals
@@ -123,6 +124,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 			assert not unknown, f"command {cmd} is unknown"
 	res['ii'] = ii
 	res['sorts'] = sorts
+	res['symbols'] = {**res['registers'], **res['memories'], **res['inputs'], **res['outputs'], **res['wires']}
 	return dict(res)
 
 def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
