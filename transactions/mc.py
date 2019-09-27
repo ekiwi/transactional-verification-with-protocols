@@ -34,8 +34,9 @@ class MCProofEngine:
 		cycles = len(tran.proto)
 		self.unroll(cycles)
 
-		# reset need to be disabled
-		self.solver.add_assume(Not(self.solver.get_symbol_by_name('rst')))
+		# reset needs to be disabled
+		if self.mod.reset is not None:
+			self.solver.add_assume(Not(self.solver.get_symbol_by_name(self.mod.reset)))
 
 		# TODO: renaming is currently broken
 		# we need to rename the spec symbols as they might collide with
@@ -74,6 +75,7 @@ class MCProofEngine:
 		valid, delta = self.solver.check(cycles - 1)
 		assert valid, f"found counter example to transaction {tran.name}"
 		print(f"Verified {tran.name} in {delta:.02} sec")
+		self.solver.reset()
 
 	def proof_transactions(self):
 		for trans in self.spec.transactions:
@@ -181,7 +183,7 @@ class BtorMC:
 			print('\n'.join(header + self.lines), file=ff)
 		r = subprocess.run([self.bin, filename, '-kmax', str(k_max)], stdout=subprocess.PIPE, check=True)
 		msg = r.stdout.decode('utf-8')
-		success = r.returncode == 0
+		success = 'sat' not in msg.split('\n')[0]
 		if not success:
 			print("Check failed!")
 			print(msg)
@@ -202,6 +204,11 @@ class Smt2ToBtor2(DagWalker):
 		return self._l(f"sort bitvec {bits}")
 
 	def walk_bv_add(self, formula, args, **kwargs): return self.walk_binop("add", formula, args, **kwargs)
+	def walk_bv_sub(self, formula, args, **kwargs): return self.walk_binop("sub", formula, args, **kwargs)
+	def walk_bv_or(self, formula, args, **kwargs): return self.walk_binop("or", formula, args, **kwargs)
+	def walk_bv_and(self, formula, args, **kwargs): return self.walk_binop("and", formula, args, **kwargs)
+	def walk_bv_xor(self, formula, args, **kwargs): return self.walk_binop("xor", formula, args, **kwargs)
+	def walk_bv_lshl(self, formula, args, **kwargs): return self.walk_binop("sll", formula, args, **kwargs)
 	def walk_equals(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
 	def walk_iff(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
 	def walk_implies(self, formula, args, **kwargs): return self.walk_binop("implies", formula, args, **kwargs)

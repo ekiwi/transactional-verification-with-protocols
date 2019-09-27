@@ -63,6 +63,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 		('state', {'state'}, ('sid', 'str')),
 		('output', {'output'}, ('nid', 'str')),
 		('next', {'next'}, ('sid', 'nid', 'nid')),
+		('init', {'init'}, ('sid', 'nid', 'nid')),
 		('op', {'not', 'inc', 'dec', 'neg', 'redand', 'redor', 'redxor'}, ('sid', 'nid')),
 		('op', {'uext', 'sext'}, ('sid', 'nid', 'int')),
 		('op', {'slice'}, ('sid', 'nid', 'int', 'int')),
