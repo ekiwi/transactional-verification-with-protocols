@@ -31,7 +31,7 @@ def main() -> int:
 	print(f"Using yosys {version}")
 
 	mod = Module.load('ser_add', [add_v], reset='rst')
-	spec = AdderSpec(2)
+	spec = AdderSpec(32)
 
 	reset_env()
 	print(f"Trying to proof {mod.name}")

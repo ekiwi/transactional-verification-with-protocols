@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import subprocess, os, tempfile
+import subprocess, os, tempfile, time
 from typing import Optional
 from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, substitute
 from pysmt.walkers import DagWalker
@@ -66,13 +66,14 @@ class MCProofEngine:
 
 				if self.mod.is_output(signal_name):
 					self.solver.add_assert(self.in_cycle(ii, equal(signal, expr)))
-					print()
 				else:
 					# if the signal is an input, we just apply the constraint for this cycle
 					assert self.mod.is_input(signal_name)
 					self.solver.add_assume(self.in_cycle(ii, equal(signal, expr)))
 
-		self.solver.check(cycles - 1)
+		valid, delta = self.solver.check(cycles - 1)
+		assert valid, f"found counter example to transaction {tran.name}"
+		print(f"Verified {tran.name} in {delta:.02} sec")
 
 	def proof_transactions(self):
 		for trans in self.spec.transactions:
@@ -172,14 +173,20 @@ class BtorMC:
 		return self._l(f"bad {bad}")
 
 	def check(self, k_max):
+		start = time.time()
 		filename = tempfile.mkstemp()[1]
 		# remove outputs
 		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
 		with open(filename, 'w') as ff:
 			print('\n'.join(header + self.lines), file=ff)
-		print(filename)
 		r = subprocess.run([self.bin, filename, '-kmax', str(k_max)], stdout=subprocess.PIPE, check=True)
-		print(r)
+		msg = r.stdout.decode('utf-8')
+		success = r.returncode == 0
+		if not success:
+			print("Check failed!")
+			print(msg)
+		delta = time.time() - start
+		return success, delta
 
 class Smt2ToBtor2(DagWalker):
 	def __init__(self, sym_name_to_nid: dict, line, env=None):
