@@ -112,7 +112,8 @@ def parse_yosys_btor(btor_src: str) -> dict:
 					# for outputs, get type
 					if name == 'output':
 						name = entry[1]
-						res['outputs'][name] = (nodes[entry[0]][1], nodes[entry[0]][2])
+						src = nodes[entry[0]]
+						res['outputs'][name] = (src[1], entry[0])
 					elif name in {'state', 'output', 'input'}:
 						key = "register" if entry[0][0] == 'bv' else "memorie"
 						key = key if name == 'state' else name

@@ -173,9 +173,10 @@ class BtorMC:
 
 	def check(self, k_max):
 		filename = tempfile.mkstemp()[1]
+		# remove outputs
+		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
 		with open(filename, 'w') as ff:
-			print(self.header, file=ff)
-			print('\n'.join(self.lines), file=ff)
+			print('\n'.join(header + self.lines), file=ff)
 		print(filename)
 		r = subprocess.run([self.bin, filename, '-kmax', str(k_max)], stdout=subprocess.PIPE, check=True)
 		print(r)
@@ -184,25 +185,8 @@ class Smt2ToBtor2(DagWalker):
 	def __init__(self, sym_name_to_nid: dict, line, env=None):
 		self.sym_name_to_nid = sym_name_to_nid
 		self._l = line
-		#self._register_ops(Smt2ToBtor2.BinOps, self.walk_binop)
-		#self._register_ops(Smt2ToBtor2.UnOps, self.walk_unop)
 		super().__init__(env)
 
-	def _register_ops(self, ops, foo):
-		for name, op in ops.items():
-			ff = lambda formula, args, **kwargs: foo(op, formula, args, **kwargs)
-			self.__setattr__('walk_' + name,    ff)
-			self.__setattr__('walk_bv_' + name, ff)
-
-	BinOps = {
-		'iff': 'iff',
-		'implies': 'implies',
-		'equals': 'eq',
-		'add': 'add',
-	}
-	UnOps = {
-		'not': 'not'
-	}
 
 	def _sort(self, typ):
 		if typ.is_bool_type(): bits = 1
@@ -212,7 +196,7 @@ class Smt2ToBtor2(DagWalker):
 
 	def walk_bv_add(self, formula, args, **kwargs): return self.walk_binop("add", formula, args, **kwargs)
 	def walk_equals(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
-	def walk_iff(self, formula, args, **kwargs): return self.walk_binop("iff", formula, args, **kwargs)
+	def walk_iff(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
 	def walk_implies(self, formula, args, **kwargs): return self.walk_binop("implies", formula, args, **kwargs)
 	def walk_binop(self, op, formula, args, **kwargs):
 		return self._l(f"{op} {self._sort(formula.get_type())} {args[0]} {args[1]}")
