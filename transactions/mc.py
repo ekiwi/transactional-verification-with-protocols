@@ -30,9 +30,18 @@ class MCProofEngine:
 	def in_cycle(self, ii: int, expr):
 		return Implies(Equals(self.cycle, BV(ii, 16)), expr)
 
-	def proof_transaction(self, tran: Transaction):
+	def proof_transaction(self, tran: Transaction, assume_invariances=False):
 		cycles = len(tran.proto)
 		self.unroll(cycles)
+
+		def symbols(names): return {name: self.solver.get_symbol_by_name(name) for name in names}
+
+		state =  symbols([s.name for s in self.mod.state])
+
+		# assume invariances hold at the beginning of the transaction
+		if assume_invariances:
+			for inv in self.spec.invariances:
+				self.solver.add_assume(self.in_cycle(0, inv(state)))
 
 		# reset needs to be disabled
 		if self.mod.reset is not None:
@@ -79,7 +88,7 @@ class MCProofEngine:
 
 	def proof_transactions(self):
 		for trans in self.spec.transactions:
-			self.proof_transaction(trans)
+			self.proof_transaction(trans, True)
 
 	def proof_all(self):
 		print("TODO invariances")
@@ -233,6 +242,9 @@ class Smt2ToBtor2(DagWalker):
 		hi = formula.bv_extract_start()
 		lo = formula.bv_extract_end()
 		return self._l(f"slice {self._sort(formula.get_type())} {args[0]} {hi} {lo}")
+
+	def walk_array_select(self, formula, args, **kwargs):
+		# TODO
 
 	def walk_bv_constant(self, formula, **kwargs):
 		return self._l(f"const {self._sort(formula.get_type())} {formula.bv_bin_str()}")
