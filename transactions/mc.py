@@ -223,6 +223,7 @@ class Smt2ToBtor2(DagWalker):
 	def walk_bv_sub(self, formula, args, **kwargs): return self.walk_binop("sub", formula, args, **kwargs)
 	def walk_bv_or(self, formula, args, **kwargs): return self.walk_binop("or", formula, args, **kwargs)
 	def walk_bv_and(self, formula, args, **kwargs): return self.walk_binop("and", formula, args, **kwargs)
+	def walk_and(self, formula, args, **kwargs): return self.walk_binop("and", formula, args, **kwargs)
 	def walk_bv_xor(self, formula, args, **kwargs): return self.walk_binop("xor", formula, args, **kwargs)
 	def walk_bv_lshl(self, formula, args, **kwargs): return self.walk_binop("sll", formula, args, **kwargs)
 	def walk_equals(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
@@ -243,8 +244,7 @@ class Smt2ToBtor2(DagWalker):
 		lo = formula.bv_extract_end()
 		return self._l(f"slice {self._sort(formula.get_type())} {args[0]} {hi} {lo}")
 
-	def walk_array_select(self, formula, args, **kwargs):
-		# TODO
+	def walk_array_select(self, formula, args, **kwargs): return self.walk_binop("read", formula, args, **kwargs)
 
 	def walk_bv_constant(self, formula, **kwargs):
 		return self._l(f"const {self._sort(formula.get_type())} {formula.bv_bin_str()}")
