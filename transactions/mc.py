@@ -224,10 +224,10 @@ class BtorMC:
 		r = subprocess.run([self.bin, filename, '-kmax', str(k_max)], stdout=subprocess.PIPE, check=True)
 		msg = r.stdout.decode('utf-8')
 		success = 'sat' not in msg.split('\n')[0]
-		if not success:
-			print("Check failed!")
-			print(msg)
 		delta = time.time() - start
+		if not success:
+			print(f"Check failed after {delta} sec!")
+			print(msg)
 		return success, delta
 
 def smt_to_btor_sort(declare_line, typ):
