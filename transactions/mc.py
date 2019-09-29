@@ -102,6 +102,11 @@ class MCProofEngine:
 					assert self.mod.is_input(signal_name)
 					self.solver.add_assume(self.in_cycle(ii, equal(signal, expr)))
 
+		# verify arch states after transaction
+		mapping_assertions = self.spec.mapping(state=self.get_circuit_state(), **arch_state_n)
+		for a in mapping_assertions:
+			self.solver.add_assert(self.in_cycle(cycles - 1, a))
+
 		valid, delta = self.solver.check(cycles - 1)
 		assert valid, f"found counter example to transaction {tran.name}"
 		print(f"Verified {tran.name} in {delta:.02} sec")
