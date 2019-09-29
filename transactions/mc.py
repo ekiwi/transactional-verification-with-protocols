@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import subprocess, os, tempfile, time
+import subprocess, os, tempfile, time, itertools
 from typing import Optional
 from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
 from pysmt.walkers import DagWalker
@@ -68,6 +68,7 @@ class MCProofEngine:
 
 		# declare architectural states and bind them to the initialization of the circuit state
 		arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items()}
+		arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
 		# TODO: we could assign an initial value to the arch state that is derived from the initial circuit state
 		for sym in arch_state.values(): self.solver.state(sym, next=sym)
 		# connect initial circuit and arch state
@@ -83,7 +84,7 @@ class MCProofEngine:
 			self.solver.state(arg, next=arg)
 		sem_out = tran.semantics(**args, **arch_state)
 		ret_args = rename(tran.ret_args)
-		for name, sym in ret_args.items():
+		for name, sym in itertools.chain(ret_args.items(), arch_state_n.items()):
 			self.solver.comment(f"{tran.name} -> {name}")
 			self.solver.state(sym, next=sym, init=sem_out[name])
 
@@ -210,6 +211,7 @@ class BtorMC:
 	def check(self, k_max):
 		start = time.time()
 		filename = tempfile.mkstemp()[1]
+		print(filename)
 		# remove outputs
 		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
 		with open(filename, 'w') as ff:
@@ -273,6 +275,9 @@ class Smt2ToBtor2(DagWalker):
 
 	def walk_ite(self, formula, args, **kwargs):
 		return self._l(f"ite {self._sort(formula.get_type())} {args[0]} {args[1]} {args[2]}")
+
+	def walk_array_store(self, formula, args, **kwargs):
+		return self._l(f"write {self._sort(formula.get_type())} {args[0]} {args[1]} {args[2]}")
 
 	def walk_bv_constant(self, formula, **kwargs):
 		return self._l(f"const {self._sort(formula.get_type())} {formula.bv_bin_str()}")
