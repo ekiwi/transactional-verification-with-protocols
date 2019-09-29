@@ -30,18 +30,30 @@ class MCProofEngine:
 	def in_cycle(self, ii: int, expr):
 		return Implies(Equals(self.cycle, BV(ii, 16)), expr)
 
+	def get_circuit_state(self):
+		""" placeholder for state['test'] for use in formulas """
+		def symbols(names): return {name: self.solver.get_symbol_by_name(name) for name in names}
+		state =  symbols([s.name for s in self.mod.state])
+		return state
+
+	def map_arch_state(self, suffix: str, cycle: int):
+			arch_state = {name: Symbol(name + suffix, tpe) for name, tpe in self.spec.arch_state.items()}
+			mapped_expr = self.spec.mapping(state=self.get_circuit_state(), **arch_state)
+			for sym in arch_state.values():
+				self.solver.fun(sym)
+			self.solver.add(conjunction(*self.spec.mapping(state=state, **arch_state)))
+			return arch_state
+
 	def proof_transaction(self, tran: Transaction, assume_invariances=False):
 		cycles = len(tran.proto)
 		self.unroll(cycles)
 
-		def symbols(names): return {name: self.solver.get_symbol_by_name(name) for name in names}
 
-		state =  symbols([s.name for s in self.mod.state])
 
 		# assume invariances hold at the beginning of the transaction
 		if assume_invariances:
 			for inv in self.spec.invariances:
-				self.solver.add_assume(self.in_cycle(0, inv(state)))
+				self.solver.add_assume(self.in_cycle(0, inv(self.get_circuit_state())))
 
 		# reset needs to be disabled
 		if self.mod.reset is not None:
@@ -54,6 +66,14 @@ class MCProofEngine:
 		#	sym: Symbol("spec_" + sym.symbol_name(), sym.symbol_type())
 		#	for sym in tran.args + tran.ret_args }
 
+		# declare architectural states and bind them to the initialization of the circuit state
+		arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items()}
+		# TODO: we could assign an initial value to the arch state that is derived from the initial circuit state
+		for sym in arch_state.values(): self.solver.state(sym, next=sym)
+		# connect initial circuit and arch state
+		mapping_assumptions = self.spec.mapping(state=self.get_circuit_state(), **arch_state)
+		for a in mapping_assumptions: self.solver.add_assume(self.in_cycle(0, a))
+
 		# semantics as pure function calculated during initialization
 		def rename(symbols):
 			return {sym.symbol_name(): sym for sym in symbols}
@@ -61,7 +81,7 @@ class MCProofEngine:
 		for arg in args.values():
 			self.solver.comment(f"{tran.name} <- {arg}")
 			self.solver.state(arg, next=arg)
-		sem_out = tran.semantics(**args)
+		sem_out = tran.semantics(**args, **arch_state)
 		ret_args = rename(tran.ret_args)
 		for name, sym in ret_args.items():
 			self.solver.comment(f"{tran.name} -> {name}")
@@ -143,6 +163,8 @@ class BtorMC:
 	def _bv(self, bits):
 		return self._l(f"sort bitvec {bits}")
 
+	def _sort(self, typ): return smt_to_btor_sort(self._l, typ)
+
 	def _smt2btor(self, formula):
 		converter = Smt2ToBtor2(sym_name_to_nid=self._name_to_ii, line=self._l)
 		return converter.walk(formula)
@@ -157,20 +179,15 @@ class BtorMC:
 	def state(self, symbol: Symbol, next: Optional = None, init: Optional = None):
 		assert symbol.symbol_name() not in self._name_to_ii, f"symbol {symbol} already exists!"
 		typ, name = symbol.symbol_type(), symbol.symbol_name()
-		if typ.is_bool_type():
-			bits = 1
-		else:
-			assert typ.is_bv_type(), f"unsupported type {typ}: {symbol}"
-			bits = typ.width
 
 		# we need to declare the init expression before the state
 		if init is not None:
 			init = self._smt2btor(init)
-		sort = self._bv(bits)
+		sort = self._sort(typ)
 		st = self._l(f"state {sort} {name}")
 		if init is not None:
 			self._l(f"init {sort} {st} {init}")
-		sym = Symbol(name, BVType(bits))
+		sym = Symbol(name, typ)
 		self._name_to_ii[name] = st
 		self._ii_to_sym[st] = sym
 		# next could be referring to state
@@ -206,6 +223,17 @@ class BtorMC:
 		delta = time.time() - start
 		return success, delta
 
+def smt_to_btor_sort(declare_line, typ):
+	if typ.is_bool_type(): return declare_line(f"sort bitvec 1")
+	elif typ.is_bv_type(): return declare_line(f"sort bitvec {typ.width}")
+	elif typ.is_array_type():
+		assert typ.index_type.is_bv_type(), f"Array address needs to be bitvector: {typ}"
+		assert typ.elem_type.is_bv_type(), f"Array data needs to be bitvector: {typ}"
+		addr_sort = smt_to_btor_sort(declare_line, typ.index_type)
+		data_sort = smt_to_btor_sort(declare_line, typ.elem_type)
+		return declare_line(f"sort array {addr_sort} {data_sort}")
+	else: raise RuntimeError(f"unsupported type {typ}")
+
 class Smt2ToBtor2(DagWalker):
 	def __init__(self, sym_name_to_nid: dict, line, env=None):
 		self.sym_name_to_nid = sym_name_to_nid
@@ -213,11 +241,7 @@ class Smt2ToBtor2(DagWalker):
 		super().__init__(env)
 
 
-	def _sort(self, typ):
-		if typ.is_bool_type(): bits = 1
-		elif typ.is_bv_type(): bits = typ.width
-		else: raise RuntimeError(f"unsupported type {typ}")
-		return self._l(f"sort bitvec {bits}")
+	def _sort(self, typ): return smt_to_btor_sort(self._l, typ)
 
 	def walk_bv_add(self, formula, args, **kwargs): return self.walk_binop("add", formula, args, **kwargs)
 	def walk_bv_sub(self, formula, args, **kwargs): return self.walk_binop("sub", formula, args, **kwargs)
@@ -226,6 +250,7 @@ class Smt2ToBtor2(DagWalker):
 	def walk_and(self, formula, args, **kwargs): return self.walk_binop("and", formula, args, **kwargs)
 	def walk_bv_xor(self, formula, args, **kwargs): return self.walk_binop("xor", formula, args, **kwargs)
 	def walk_bv_lshl(self, formula, args, **kwargs): return self.walk_binop("sll", formula, args, **kwargs)
+	def walk_bv_concat(self, formula, args, **kwargs): return self.walk_binop("concat", formula, args, **kwargs)
 	def walk_equals(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
 	def walk_iff(self, formula, args, **kwargs): return self.walk_binop("eq", formula, args, **kwargs)
 	def walk_implies(self, formula, args, **kwargs): return self.walk_binop("implies", formula, args, **kwargs)
@@ -245,6 +270,9 @@ class Smt2ToBtor2(DagWalker):
 		return self._l(f"slice {self._sort(formula.get_type())} {args[0]} {hi} {lo}")
 
 	def walk_array_select(self, formula, args, **kwargs): return self.walk_binop("read", formula, args, **kwargs)
+
+	def walk_ite(self, formula, args, **kwargs):
+		return self._l(f"ite {self._sort(formula.get_type())} {args[0]} {args[1]} {args[2]}")
 
 	def walk_bv_constant(self, formula, **kwargs):
 		return self._l(f"const {self._sort(formula.get_type())} {formula.bv_bin_str()}")
