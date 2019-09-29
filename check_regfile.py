@@ -8,13 +8,13 @@ from functools import reduce
 
 class RegfileSpec(Spec):
 	def __init__(self):
-		x = ArrayType(BVType(5), BVType(32)) #ArraySignal('x', 5, 32)
+		regs = ArrayType(BVType(5), BVType(32)) #ArraySignal('x', 5, 32)
 
-		def mapping(state: State, x):
+		def mapping(state: State, regs):
 			asserts = []
 			memory = state['memory']
 			for ii in range(0, 32):
-				reg = Select(x, BV(ii, 5))
+				reg = Select(regs, BV(ii, 5))
 				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
 				asserts.append(Equals(reg, reduce(BVConcat, iis)))
 				# for jj in range(16):
@@ -50,12 +50,12 @@ class RegfileSpec(Spec):
 		def is_zero(expr):
 			return Equals(expr, BV(0, expr.bv_width()))
 
-		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, x):
-			rs1_data = Ite(is_zero(rs1_addr), BV(0, 32), Select(x, rs1_addr))
-			rs2_data = Ite(is_zero(rs2_addr), BV(0, 32), Select(x, rs2_addr))
+		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, regs):
+			rs1_data = Ite(is_zero(rs1_addr), BV(0, 32), Select(regs, rs1_addr))
+			rs2_data = Ite(is_zero(rs2_addr), BV(0, 32), Select(regs, rs2_addr))
 			do_write = And(rd_enable, Not(Equals(rd_addr, BV(0,5))))
-			x_n = Ite(do_write, Store(x, rd_addr, rd_data), x)
-			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'x': x_n}
+			regs_n = Ite(do_write, Store(regs, rd_addr, rd_data), regs)
+			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'regs': regs_n}
 
 		case_split = [And(rd_enable, Equals(rd_addr, BV(ii, 5))) for ii in range(32)] + [Not(rd_enable)]
 
@@ -68,7 +68,7 @@ class RegfileSpec(Spec):
 			m = state['memory']
 			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
 		inv = [lambda state: Equals(state['wcnt'], BV(0, 5)), x0_inv]
-		super().__init__(arch_state={'x': x}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv, case_split=case_split)
+		super().__init__(arch_state={'regs': regs}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv, case_split=case_split)
 
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
