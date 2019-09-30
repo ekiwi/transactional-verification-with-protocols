@@ -130,7 +130,7 @@ class MCProofEngine:
 
 		valid, delta = self.solver.check(cycles)
 		assert valid, f"found counter example to transaction {tran.name}"
-		print(f"Verified {tran.name} in {delta:.02} sec")
+		print(f"Verified {tran.name} in {delta:.2f} sec")
 		self.solver.reset()
 
 	def proof_transactions(self):
@@ -274,7 +274,7 @@ class BtorMC:
 		success = 'sat' not in msg.split('\n')[0]
 		delta = time.time() - start
 		if not success:
-			print(f"Check failed after {delta} sec!")
+			print(f"Check failed after {delta:.2f} sec!")
 			print(msg)
 		return success, delta
 
