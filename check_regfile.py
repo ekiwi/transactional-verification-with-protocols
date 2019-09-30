@@ -10,18 +10,21 @@ class RegfileSpec(Spec):
 	def __init__(self):
 		regs = ArrayType(BVType(5), BVType(32)) #ArraySignal('x', 5, 32)
 
+		map_regs_to_mem = True
+
 		def mapping(state: State, regs):
 			asserts = []
 			memory = state['memory']
 			for ii in range(1, 32):
 				reg = Select(regs, BV(ii, 5))
-				#iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
-				#asserts.append(Equals(reg, reduce(BVConcat, iis)))
-				for jj in range(16):
-					a = Select(memory, BV(ii*16 + jj, 9))
-					b = BVExtract(reg, start=jj*2, end=jj*2+1)
-					asserts.append(Equals(a, b))
-			#asserts.append(Equals(Select(x, BV(0, 5)), BV(0, 32)))
+				if map_regs_to_mem:
+					iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
+					asserts.append(Equals(reg, reduce(BVConcat, iis)))
+				else:
+					for jj in range(16):
+						a = Select(memory, BV(ii*16 + jj, 9))
+						b = BVExtract(reg, start=jj*2, end=jj*2+1)
+						asserts.append(Equals(a, b))
 			return asserts
 
 		# build transaction
