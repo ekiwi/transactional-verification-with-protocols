@@ -133,6 +133,7 @@ class BtorMC:
 		self._ii_to_sym = {}
 		self.lines = []
 		self.line_cache = {}
+		self.assertions = []
 		self.reset()
 
 	def reset(self):
@@ -142,6 +143,7 @@ class BtorMC:
 		self._ii_to_sym = {}
 		self.lines = []
 		self.line_cache = {}
+		self.assertions = []
 		# load symbols form parser
 		for name, data in rr['symbols'].items():
 			typ, ii = data
@@ -208,7 +210,8 @@ class BtorMC:
 		return self._l(f"constraint {const}")
 
 	def add_assert(self, formula):
-		self.comment(f"assert: {formula}")
+		self.comment(f"assert: {formula} (b{len(self.assertions)})")
+		self.assertions.append(formula)
 		good = self._smt2btor(formula)
 		bad = self._l(f"not {self._bv(1)} {good}")
 		return self._l(f"bad {bad}")
