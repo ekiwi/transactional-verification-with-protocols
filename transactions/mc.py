@@ -25,7 +25,7 @@ class MCProofEngine:
 	def unroll(self, cycles):
 		self.solver.state(self.cycle, init=BV(0, 16), next=BVAdd(self.cycle, BV(1, 16)))
 		self.solver.comment(f"max unrolling = {cycles}")
-		self.solver.add_assert(Not(Equals(self.cycle, BV(cycles, 16))))
+		self.solver.add_assert(Not(Equals(self.cycle, BV(cycles+1, 16))))
 
 	def in_cycle(self, ii: int, expr):
 		return Implies(Equals(self.cycle, BV(ii, 16)), expr)
@@ -98,16 +98,16 @@ class MCProofEngine:
 		#self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(0, 5))))
 
 		# 3. write to address 1 -> counter example ((after 3.3s)
-		self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
-		self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(1, 5))))
-		self.solver.watch("watch_memory_32_9", Select(self.solver.get_symbol_by_name("memory"), BV(32, 9)))
-		self.solver.watch("watch_regs_n_1_5", Select(self.solver.get_symbol_by_name("regs_n"), BV(1, 5)))
-		self.solver.watch_ii("watch_wr_en", BVType(1), 54)
-		self.solver.watch_ii("watch_wr_en_final", BVType(1), 96)
-		self.solver.watch_ii("watch_waddr", BVType(9), 84)
-		self.solver.watch_ii("watch_wdata", BVType(2), 86)
+		#self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
+		#self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(1, 5))))
+		#self.solver.watch("watch_memory_31_9", Select(self.solver.get_symbol_by_name("memory"), BV(31, 9)))
+		#self.solver.watch("watch_regs_n_1_5", Select(self.solver.get_symbol_by_name("regs_n"), BV(1, 5)))
+		#self.solver.watch_ii("watch_wr_en", BVType(1), 54)
+		#self.solver.watch_ii("watch_wr_en_final", BVType(1), 96)
+		#self.solver.watch_ii("watch_waddr", BVType(9), 84)
+		#self.solver.watch_ii("watch_wdata", BVType(2), 86)
 		# after write/read masking etc
-		self.solver.watch_ii("watch_wdata_final", BVType(2), 94)
+		#self.solver.watch_ii("watch_wdata_final", BVType(2), 94)
 
 		# unroll transaction
 		for ii, m in enumerate(tran.proto.mappings):
@@ -126,9 +126,9 @@ class MCProofEngine:
 		# verify arch states after transaction
 		mapping_assertions = self.spec.mapping(state=self.get_circuit_state(), **arch_state_n)
 		for a in mapping_assertions:
-			self.solver.add_assert(self.in_cycle(cycles - 1, a))
+			self.solver.add_assert(self.in_cycle(cycles, a))
 
-		valid, delta = self.solver.check(cycles - 1)
+		valid, delta = self.solver.check(cycles)
 		assert valid, f"found counter example to transaction {tran.name}"
 		print(f"Verified {tran.name} in {delta:.02} sec")
 		self.solver.reset()
