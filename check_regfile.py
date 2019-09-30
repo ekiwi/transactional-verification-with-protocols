@@ -13,14 +13,14 @@ class RegfileSpec(Spec):
 		def mapping(state: State, regs):
 			asserts = []
 			memory = state['memory']
-			for ii in range(0, 32):
+			for ii in range(1, 32):
 				reg = Select(regs, BV(ii, 5))
-				iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
-				asserts.append(Equals(reg, reduce(BVConcat, iis)))
-				# for jj in range(16):
-				# 	a = Select(memory, BV(ii*16 + jj, 9))
-				# 	b = BVExtract(reg, start=jj*2, end=jj*2+1)
-				# 	asserts.append(Equals(a, b))
+				#iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
+				#asserts.append(Equals(reg, reduce(BVConcat, iis)))
+				for jj in range(16):
+					a = Select(memory, BV(ii*16 + jj, 9))
+					b = BVExtract(reg, start=jj*2, end=jj*2+1)
+					asserts.append(Equals(a, b))
 			#asserts.append(Equals(Select(x, BV(0, 5)), BV(0, 32)))
 			return asserts
 

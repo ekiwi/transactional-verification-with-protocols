@@ -3,7 +3,7 @@
 
 import subprocess, os, tempfile, time, itertools
 from typing import Optional
-from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
+from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType, Select
 from pysmt.walkers import DagWalker
 
 from .module import Module, State
@@ -100,6 +100,14 @@ class MCProofEngine:
 		# 3. write to address 1 -> counter example ((after 3.3s)
 		self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
 		self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(1, 5))))
+		self.solver.watch("watch_memory_32_9", Select(self.solver.get_symbol_by_name("memory"), BV(32, 9)))
+		self.solver.watch("watch_regs_n_1_5", Select(self.solver.get_symbol_by_name("regs_n"), BV(1, 5)))
+		self.solver.watch_ii("watch_wr_en", BVType(1), 54)
+		self.solver.watch_ii("watch_wr_en_final", BVType(1), 96)
+		self.solver.watch_ii("watch_waddr", BVType(9), 84)
+		self.solver.watch_ii("watch_wdata", BVType(2), 86)
+		# after write/read masking etc
+		self.solver.watch_ii("watch_wdata_final", BVType(2), 94)
 
 		# unroll transaction
 		for ii, m in enumerate(tran.proto.mappings):
@@ -197,6 +205,31 @@ class BtorMC:
 	def comment(self, s: str):
 		self.lines.append("; " + str(s))
 
+	def register_symbol(self, sym: Symbol, ii: int):
+		assert sym.symbol_name() not in self._name_to_ii, f"symbol {sym} already exists!"
+		assert ii not in self._ii_to_sym, f"symbol {self._ii_to_sym[ii]} already exists @ {ii}!"
+		self._name_to_ii[sym.symbol_name()] = ii
+		self._ii_to_sym[ii] = sym
+
+	def watch_ii(self, name: str, typ, ii: int):
+		assert name not in self._name_to_ii, f"symbol {name} already exists!"
+		sort = self._sort(typ)
+		self.comment(f"watching {ii}")
+		inp = self._l(f"input {sort} {name}")
+		sym = Symbol(name, typ)
+		self.register_symbol(sym, inp)
+		eq = self._l(f"eq {self._bv(1)} {inp} {ii}")
+		self._l(f"constraint {eq}")
+
+	def watch(self, name: str, expr):
+		assert name not in self._name_to_ii, f"symbol {name} already exists!"
+		typ = expr.get_type()
+		sort = self._sort(typ)
+		inp = self._l(f"input {sort} {name}")
+		sym = Symbol(name, typ)
+		self.register_symbol(sym, inp)
+		self.add_assume(equal(sym, expr))
+
 	def state(self, symbol: Symbol, next: Optional = None, init: Optional = None):
 		assert symbol.symbol_name() not in self._name_to_ii, f"symbol {symbol} already exists!"
 		typ, name = symbol.symbol_type(), symbol.symbol_name()
@@ -209,8 +242,7 @@ class BtorMC:
 		if init is not None:
 			self._l(f"init {sort} {st} {init}")
 		sym = Symbol(name, typ)
-		self._name_to_ii[name] = st
-		self._ii_to_sym[st] = sym
+		self.register_symbol(sym, st)
 		# next could be referring to state
 		if next is not None:
 			next = self._smt2btor(next)
@@ -288,8 +320,8 @@ class Smt2ToBtor2(DagWalker):
 		return self._l(f"uext {self._sort(formula.get_type())} {args[0]} {formula.bv_extend_step()}")
 
 	def walk_bv_extract(self, formula, args, **kwargs):
-		hi = formula.bv_extract_start()
-		lo = formula.bv_extract_end()
+		lo = formula.bv_extract_start()
+		hi = formula.bv_extract_end()
 		return self._l(f"slice {self._sort(formula.get_type())} {args[0]} {hi} {lo}")
 
 	def walk_array_select(self, formula, args, **kwargs): return self.walk_binop("read", formula, args, **kwargs)
