@@ -88,6 +88,19 @@ class MCProofEngine:
 			self.solver.comment(f"{tran.name} -> {name}")
 			self.solver.state(sym, next=sym, init=sem_out[name])
 
+		# TODO: remove assumption
+
+		# 1. with no write, things are easy (< 1s)
+		#self.solver.add_assume(self.in_cycle(0, Not(args['rd_enable'])))
+
+		# 2. write to address 0, is ok (< 3.7s)
+		#self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
+		#self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(0, 5))))
+
+		# 3. write to address 1 -> counter example ((after 3.3s)
+		self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
+		self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(1, 5))))
+
 		# unroll transaction
 		for ii, m in enumerate(tran.proto.mappings):
 			for signal_name, expr in m.items():
@@ -216,7 +229,7 @@ class BtorMC:
 		bad = self._l(f"not {self._bv(1)} {good}")
 		return self._l(f"bad {bad}")
 
-	def check(self, k_max):
+	def check(self, k):
 		start = time.time()
 		filename = tempfile.mkstemp()[1]
 		print(filename)
@@ -224,7 +237,7 @@ class BtorMC:
 		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
 		with open(filename, 'w') as ff:
 			print('\n'.join(header + self.lines), file=ff)
-		r = subprocess.run([self.bin, filename, '-kmax', str(k_max)], stdout=subprocess.PIPE, check=True)
+		r = subprocess.run([self.bin, filename, '-kmax', str(k), '-kmin', str(k)], stdout=subprocess.PIPE, check=True)
 		msg = r.stdout.decode('utf-8')
 		success = 'sat' not in msg.split('\n')[0]
 		delta = time.time() - start
