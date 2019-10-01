@@ -69,7 +69,7 @@ class Module:
 	def __getitem__(self, name: str):
 		assert isinstance(name, str)
 		assert name in self.signals, f"Unknown io/state element {name}.\nAvailable elements:{list(self.signals.keys())}"
-		return self.signals[name].to_symbol()
+		return self.signals[name].symbol
 
 class Signal:
 	def __init__(self, name: str, nid: int = -1):
@@ -78,15 +78,13 @@ class Signal:
 		self.nid = nid
 	def __str__(self):
 		return f"{self.name} : ?"
-	def to_symbol(self):
-		assert self.tpe is not None
-		return Symbol(self.name, self.tpe)
 
 class BVSignal(Signal):
 	def __init__(self, name: str, bits: int, nid: int = -1):
 		super().__init__(name=name, nid=nid)
 		self.bits = bits
 		self.tpe = BVType(bits)
+		self.symbol = Symbol(self.name, self.tpe)
 	def __str__(self):
 		return f"{self.name} : bv<{self.bits}>"
 
@@ -95,6 +93,7 @@ class BoolSignal(Signal):
 		super().__init__(name=name, nid=nid)
 		self.tpe = BOOL
 		self.bits = 1
+		self.symbol = Symbol(self.name, self.tpe)
 	def __str__(self):
 		return f"{self.name} : bool"
 
@@ -106,6 +105,7 @@ class ArraySignal(Signal):
 		self.address_bits = address_bits
 		self.data_bits = data_bits
 		self.tpe = ArrayType(BVType(self.address_bits), BVType(self.data_bits))
+		self.symbol = Symbol(self.name, self.tpe)
 	@staticmethod
 	def from_memory(name: str, address_bits: int, data_bits: int, read_ports: int, write_ports: int, async_read: bool):
 		assert not async_read, "asynchronous memories are not supported!"
