@@ -59,10 +59,10 @@ class Module:
 		dd = [self._name, '-' * len(self._name), ""]
 		def render_fields(fields)-> List[str]:
 			return [str(ff) for ff in fields.values()]
-		dd += ["Inputs:"] + render_fields(self._inputs) + [""]
-		dd += ["Outputs:"] + render_fields(self._outputs) + [""]
-		dd += ["State:"] + render_fields(self._state) + [""]
-		dd += ["Wires:"] + render_fields(self._wires) + [""]
+		dd += ["Inputs:"] + render_fields(self.inputs) + [""]
+		dd += ["Outputs:"] + render_fields(self.outputs) + [""]
+		dd += ["State:"] + render_fields(self.state) + [""]
+		dd += ["Wires:"] + render_fields(self.wires) + [""]
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 

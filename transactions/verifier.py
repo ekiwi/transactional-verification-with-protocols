@@ -26,12 +26,14 @@ class BoundedCheck:
 		self._sym_names: Set[str] = set(self._mod.signals.keys())
 		self._active = False
 	@property
-	def cycles(self): return len(self.steps) - 1
+	def cycles(self):
+		assert self._active
+		return len(self.steps) - 1
 
 	def assume_at(self, cycle, expr):
 		assert self._active
 		assert self.cycles >= cycle >= 0
-		self.steps[cycle].assertions.append(expr)
+		self.steps[cycle].assumptions.append(expr)
 
 	def assume_always(self, expr):
 		assert self._active
@@ -72,7 +74,7 @@ class Verifier:
 		self.verbose = True
 
 	def do_transaction(self, tran: Transaction, check: BoundedCheck, assume_invariances=False, no_asserts=False):
-		assert check.cycles == len(tran.proto), f"need to fully unroll transaction!"
+		assert check.cycles == len(tran.proto), f"need to fully unroll transaction! {check.cycles} vs {len(tran.proto)}"
 
 		# assume invariances hold at the beginning of the transaction
 		if assume_invariances:
@@ -148,7 +150,7 @@ class Verifier:
 
 		for tran in self.spec.transactions:
 			cycles = len(tran.proto)
-			with BoundedCheck(f"invariance is inductive over {tran.name} transaction", self, cycles=cycles):
+			with BoundedCheck(f"invariance is inductive over {tran.name} transaction", self, cycles=cycles) as check:
 				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
 				# assume this particular invariance
 				check.assume_at(0, invariance(self.mod))

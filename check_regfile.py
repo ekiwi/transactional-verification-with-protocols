@@ -12,9 +12,9 @@ class RegfileSpec(Spec):
 
 		map_regs_to_mem = True
 
-		def mapping(state: State, regs):
+		def mapping(mod: Module, regs):
 			asserts = []
-			memory = state['memory']
+			memory = mod['memory']
 			for ii in range(1, 32):
 				reg = Select(regs, BV(ii, 5))
 				if map_regs_to_mem:
@@ -64,7 +64,7 @@ class RegfileSpec(Spec):
 
 		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
-		idle = lambda state: And(Not(state['i_go']), Not(state['i_rd_en']))
+		idle = lambda mod: And(Not(mod['i_go']), Not(mod['i_rd_en']))
 
 		# TODO: infer
 		def x0_inv(state):
@@ -89,8 +89,9 @@ def main() -> int:
 	print(mod)
 	#solver = Solver(mod.smt2_src)
 	#ee = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
-	ee = MCProofEngine(mod=mod, spec=spec, outdir="btor2")
-	ee.proof_all()
+	ee = MCProofEngine(outdir="btor2")
+	veri = Verifier(mod, spec, ee)
+	veri.proof_all()
 
 	return 0
 
