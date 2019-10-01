@@ -3,7 +3,7 @@ from typing import List,  Dict, Optional
 from pysmt.shortcuts import *
 
 from .yosys import verilog_to_smt2_and_btor, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor
-from .utils import *
+
 
 def to_signal(name, typ, nid):
 	if typ[0] == 'bv' and typ[1] == 1:
@@ -31,40 +31,26 @@ class Module:
 
 	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, reset: Optional[str] = None):
 		self._name = name
-		self._inputs = inputs
-		self._outputs = outputs
-		self._state = state
-		self._wires = wires
-		self.state_t = Type(name + "_s")
-		self._transition_fun = Symbol(name + "_t", FunctionType(BOOL, [self.state_t, self.state_t]))
-		self._inital_fun = Symbol(name + "_i", FunctionType(BOOL, [self.state_t]))
+		self.inputs = inputs
+		self.outputs = outputs
+		self.state = state
+		self.wires = wires
+		self.signals = {**self.wires, **self.state, **self.inputs, **self.outputs}
 		self.smt2_src = smt2_src
 		self.btor2_src = btor2_src
 		self.reset = reset
 		if self.reset is not None:
-			assert self.reset in self._inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self._inputs.keys())}"
+			assert self.reset in self.inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self.inputs.keys())}"
 
 	@property
 	def name(self): return self._name
-
 	def is_input(self, name: str):
-		return name in self._inputs
+		return name in self.inputs
 	def is_output(self, name: str):
-		return name in self._outputs
+		return name in self.outputs
 	def is_state(self, name: str):
-		return name in self._state
-	@property
-	def inputs(self):
-		return self._inputs.values()
-	@property
-	def outputs(self):
-		return self._outputs.values()
-	@property
-	def wires(self):
-		return self._wires.values()
-	@property
-	def state(self):
-		return self._state.values()
+		return name in self.state
+
 	@property
 	def non_mem_state(self):
 		return [s for s in self.state if not isinstance(s, ArraySignal)]
@@ -80,54 +66,27 @@ class Module:
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
 
-	def declare_states(self, solver: Solver, names: List[str]) -> list:
-		states = [State(name, self) for name in names]
-		for state in states:
-			solver.fun(state.sym)
-		return states
-
-	def initial(self, solver: Solver, state: "State"):
-		assert state._mod == self
-		solver.add(Function(self._inital_fun, [state.sym]))
-
-	def transition(self, solver: Solver, states: List["State"]):
-		assert all(state._mod == self for state in states)
-		if len(states) < 2: return
-		for ii in range((len(states) - 1)):
-			solver.add(Function(self._transition_fun, [states[ii].sym, states[ii+1].sym]))
-
-	def _get_signal(self, name: str) -> Optional["Signal"]:
-		for dd in [self._inputs, self._outputs, self._state, self._wires]:
-			if name in dd:
-				return dd[name]
-		return None
-
-	def get(self, name: str, state: "State"):
-		signal = self._get_signal(name=name)
-		assert signal is not None, f"Unknown io/state element {name}"
-		ft = FunctionType(signal.tpe, [self.state_t])
-		if isinstance(signal, ArraySignal):
-			fn = self.name + "_m " + signal.name
-		else:
-			fn = self.name + "_n " + signal.name
-		return Function(Symbol(fn, ft), [state.sym])
+	def __getitem__(self, name: str):
+		assert isinstance(name, str)
+		assert name in self.signals, f"Unknown io/state element {name}.\nAvailable elements:{list(self.signals.keys())}"
+		return self.signals[name].to_symbol()
 
 class Signal:
 	def __init__(self, name: str, nid: int = -1):
 		self.name = name
 		self.tpe = None
 		self.nid = nid
-
 	def __str__(self):
 		return f"{self.name} : ?"
+	def to_symbol(self):
+		assert self.tpe is not None
+		return Symbol(self.name, self.tpe)
 
 class BVSignal(Signal):
 	def __init__(self, name: str, bits: int, nid: int = -1):
 		super().__init__(name=name, nid=nid)
 		self.bits = bits
 		self.tpe = BVType(bits)
-
-
 	def __str__(self):
 		return f"{self.name} : bv<{self.bits}>"
 
@@ -158,16 +117,3 @@ class ArraySignal(Signal):
 									   async_read=(async_read == "async"))
 	def __str__(self):
 		return f"{self.name} : bv<{self.address_bits}> -> bv<{self.data_bits}>"
-
-
-class State:
-	def __init__(self, name: str, module: Module):
-		self.name = name
-		self.sym = Symbol(name, module.state_t)
-		self._mod = module
-
-	def __str__(self):
-		return f"(declare-fun |{self.name}| () {self._mod.state_t})"
-
-	def __getitem__(self, name) -> str:
-		return self._mod.get(name, self)

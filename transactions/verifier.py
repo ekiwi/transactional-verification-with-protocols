@@ -24,32 +24,45 @@ class BoundedCheck:
 		self.functions = []
 		self.assumptions = []
 		self._sym_names: Set[str] = set(self._mod.signals.keys())
+		self._active = False
 	@property
 	def cycles(self): return len(self.steps) - 1
 
 	def assume_at(self, cycle, expr):
+		assert self._active
 		assert self.cycles >= cycle >= 0
 		self.steps[cycle].assertions.append(expr)
 
 	def assume_always(self, expr):
+		assert self._active
 		self.assumptions.append(expr)
 
 	def assert_at(self, cycle, expr):
+		assert self._active
 		assert self.cycles >= cycle >= 0
 		self.steps[cycle].assertions.append(expr)
 
 	def constant(self, symbol):
+		assert self._active
 		name = symbol.symbol_name()
 		assert name not in self._sym_names, f"symbol {symbol} already exists!"
 		self._sym_names.add(name)
 		self.constants.append(symbol)
 
 	def function(self, symbol, expr):
+		assert self._active
 		name = symbol.symbol_name()
 		assert name not in self._sym_names, f"symbol {symbol} already exists!"
 		self._sym_names.add(name)
 		self.functions.append((symbol, expr))
 
+	def __enter__(self):
+		self._active = True
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		if exc_type is not None: return
+		self._engine.check(self, mod=self._mod)
 
 class Verifier:
 	def __init__(self, mod: Module, spec: Spec, engine):
@@ -112,7 +125,7 @@ class Verifier:
 			sem_out = tran.semantics(**args, **arch_state)
 			ret_args = rename(tran.ret_args)
 			for name, sym in itertools.chain(ret_args.items(), arch_state_n.items()):
-				check.function(sym, sem_out)
+				check.function(sym, sem_out[name])
 
 			# verify arch states after transaction
 			mapping_assertions = self.spec.mapping(self.mod, **arch_state_n)

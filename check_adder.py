@@ -38,8 +38,9 @@ def main() -> int:
 	#print(mod)
 	#solver = Solver(mod.smt2_src)
 	#engine = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
-	engine = MCProofEngine(mod=mod,spec=spec, outdir="btor2")
-	engine.proof_all()
+	ee = MCProofEngine(outdir="btor2")
+	veri = Verifier(mod, spec, ee)
+	veri.proof_all()
 
 	return 0
 

@@ -124,8 +124,9 @@ def main() -> int:
 	#solver = Solver(mod.smt2_src)
 	#ee = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
 
-	ee = MCProofEngine(mod=mod, spec=spec, outdir="btor2")
-	ee.proof_all()
+	ee = MCProofEngine(outdir="btor2")
+	veri = Verifier(mod, spec, ee)
+	veri.proof_all()
 
 	return 0
 

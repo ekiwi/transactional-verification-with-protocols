@@ -1,146 +1,65 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import subprocess, os, tempfile, time, itertools
+import subprocess, os, tempfile, time
 from typing import Optional
-from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType, Select
+from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
 from pysmt.walkers import DagWalker
 
-from .module import Module, State
-from .spec import Spec, Transaction
+from .module import Module
 from .yosys import parse_yosys_btor
 from .utils import equal
+from .verifier import BoundedCheck
 
 class MCProofEngine:
-	def __init__(self, mod: Module, spec: Spec, outdir=None):
-		self.mod = mod
-		self.spec = spec
+	def __init__(self, outdir=None):
 		self.verbose = True
 		self.outdir = outdir
-		self.solver = BtorMC(mod.btor2_src)
-		self.cycle = Symbol("cycle_count", BVType(16))
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
-	def unroll(self, cycles):
-		self.solver.state(self.cycle, init=BV(0, 16), next=BVAdd(self.cycle, BV(1, 16)))
-		self.solver.comment(f"max unrolling = {cycles}")
-		self.solver.add_assert(Not(Equals(self.cycle, BV(cycles+1, 16))))
+	def check(self, check: BoundedCheck, mod: Module):
+		solver = BtorMC(header=mod.btor2_src)
 
-	def in_cycle(self, ii: int, expr):
-		return Implies(Equals(self.cycle, BV(ii, 16)), expr)
+		# unroll for N cycles
+		assert check.cycles < 2**16, "Too many cycles"
+		solver.comment(f"Unroll for k={check.cycles} cycles")
+		cycle = Symbol("cycle_count", BVType(16))
+		solver.state(cycle, init=BV(0, 16), next=BVAdd(cycle, BV(1, 16)))
+		solver.add_assert(Not(Equals(cycle, BV(check.cycles + 1, 16))))
+		def in_cycle(ii: int, expr):
+			return Implies(Equals(cycle, BV(ii, 16)), expr)
 
-	def get_circuit_state(self):
-		""" placeholder for state['test'] for use in formulas """
-		def symbols(names): return {name: self.solver.get_symbol_by_name(name) for name in names}
-		state =  symbols([s.name for s in self.mod.state])
-		return state
+		# declare constants
+		for sym in check.constants:
+			solver.comment(f"Symbolic Constant: {sym}")
+			solver.state(sym, next=sym)
 
-	def map_arch_state(self, suffix: str, cycle: int):
-			arch_state = {name: Symbol(name + suffix, tpe) for name, tpe in self.spec.arch_state.items()}
-			mapped_expr = self.spec.mapping(state=self.get_circuit_state(), **arch_state)
-			for sym in arch_state.values():
-				self.solver.fun(sym)
-			self.solver.add(conjunction(*self.spec.mapping(state=state, **arch_state)))
-			return arch_state
+		# compute functions
+		for sym, expr in check.functions:
+			solver.comment(f"Function: {sym} = {expr}")
+			solver.state(sym, next=sym, init=expr)
 
-	def proof_transaction(self, tran: Transaction, assume_invariances=False):
-		cycles = len(tran.proto)
-		self.unroll(cycles)
+		# add invariant assumptions
+		for aa in check.assumptions:
+			solver.add_assume(aa)
 
+		# check each step
+		for ii, step in enumerate(check.steps):
+			assert step.cycle == ii
+			solver.comment(f"-------------------")
+			solver.comment(f"- Cycle {ii}")
+			solver.comment(f"-------------------")
+			for aa in step.assumptions:
+				solver.add_assume(in_cycle(ii, aa))
+			for aa in step.assertions:
+				solver.add_assert(in_cycle(ii, aa))
 
-
-		# assume invariances hold at the beginning of the transaction
-		if assume_invariances:
-			for inv in self.spec.invariances:
-				self.solver.add_assume(self.in_cycle(0, inv(self.get_circuit_state())))
-
-		# reset needs to be disabled
-		if self.mod.reset is not None:
-			self.solver.add_assume(Not(self.solver.get_symbol_by_name(self.mod.reset)))
-
-		# TODO: renaming is currently broken
-		# we need to rename the spec symbols as they might collide with
-		# the symbols in the circuit
-		#rename_table = {
-		#	sym: Symbol("spec_" + sym.symbol_name(), sym.symbol_type())
-		#	for sym in tran.args + tran.ret_args }
-
-		# declare architectural states and bind them to the initialization of the circuit state
-		arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items()}
-		arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
-		# TODO: we could assign an initial value to the arch state that is derived from the initial circuit state
-		for sym in arch_state.values(): self.solver.state(sym, next=sym)
-		# connect initial circuit and arch state
-		mapping_assumptions = self.spec.mapping(state=self.get_circuit_state(), **arch_state)
-		for a in mapping_assumptions: self.solver.add_assume(self.in_cycle(0, a))
-
-		# semantics as pure function calculated during initialization
-		def rename(symbols):
-			return {sym.symbol_name(): sym for sym in symbols}
-		args = rename(tran.args)
-		for arg in args.values():
-			self.solver.comment(f"{tran.name} <- {arg}")
-			self.solver.state(arg, next=arg)
-		sem_out = tran.semantics(**args, **arch_state)
-		ret_args = rename(tran.ret_args)
-		for name, sym in itertools.chain(ret_args.items(), arch_state_n.items()):
-			self.solver.comment(f"{tran.name} -> {name}")
-			self.solver.state(sym, next=sym, init=sem_out[name])
-
-		# TODO: remove assumption
-
-		# 1. with no write, things are easy (< 1s)
-		#self.solver.add_assume(self.in_cycle(0, Not(args['rd_enable'])))
-
-		# 2. write to address 0, is ok (< 3.7s)
-		#self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
-		#self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(0, 5))))
-
-		# 3. write to address 1 -> counter example ((after 3.3s)
-		#self.solver.add_assume(self.in_cycle(0, args['rd_enable']))
-		#self.solver.add_assume(self.in_cycle(0, equal(args['rd_addr'], BV(1, 5))))
-		#self.solver.watch("watch_memory_31_9", Select(self.solver.get_symbol_by_name("memory"), BV(31, 9)))
-		#self.solver.watch("watch_regs_n_1_5", Select(self.solver.get_symbol_by_name("regs_n"), BV(1, 5)))
-		#self.solver.watch_ii("watch_wr_en", BVType(1), 54)
-		#self.solver.watch_ii("watch_wr_en_final", BVType(1), 96)
-		#self.solver.watch_ii("watch_waddr", BVType(9), 84)
-		#self.solver.watch_ii("watch_wdata", BVType(2), 86)
-		# after write/read masking etc
-		#self.solver.watch_ii("watch_wdata_final", BVType(2), 94)
-
-		# unroll transaction
-		for ii, m in enumerate(tran.proto.mappings):
-			for signal_name, expr in m.items():
-				assert not self.mod.is_state(signal_name), f"protocols may only read/write from io: {signal_name}"
-				signal = self.solver.get_symbol_by_name(signal_name)
-				#expr = substitute(expr, rename_table)
-
-				if self.mod.is_output(signal_name):
-					self.solver.add_assert(self.in_cycle(ii, equal(signal, expr)))
-				else:
-					# if the signal is an input, we just apply the constraint for this cycle
-					assert self.mod.is_input(signal_name)
-					self.solver.add_assume(self.in_cycle(ii, equal(signal, expr)))
-
-		# verify arch states after transaction
-		mapping_assertions = self.spec.mapping(state=self.get_circuit_state(), **arch_state_n)
-		for a in mapping_assertions:
-			self.solver.add_assert(self.in_cycle(cycles, a))
-
-		valid, delta = self.solver.check(cycles)
-		assert valid, f"found counter example to transaction {tran.name}"
-		print(f"Verified {tran.name} in {delta:.2f} sec")
-		self.solver.reset()
-
-	def proof_transactions(self):
-		for trans in self.spec.transactions:
-			self.proof_transaction(trans, True)
-
-	def proof_all(self):
-		print("TODO invariances")
-		self.proof_transactions()
-
+		# run solver
+		valid, delta = solver.check(check.cycles)
+		assert valid, f"found counter example to check {check.name}"
+		print(f"Verified {check.name} in {delta:.2f} sec")
+		return valid
 
 class BtorMC:
 	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):
