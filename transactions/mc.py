@@ -7,7 +7,7 @@ from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOO
 from pysmt.walkers import DagWalker
 
 from .module import Module, State
-from .engine import Spec, Transaction
+from .spec import Spec, Transaction
 from .yosys import parse_yosys_btor
 from .utils import equal
 
