@@ -191,7 +191,8 @@ class BtorMC:
 			header = [ll for ll in header if 'init' not in ll]
 		with open(filename, 'w') as ff:
 			print('\n'.join(header + self.lines), file=ff)
-		r = subprocess.run([self.bin, filename, '-kmax', str(k), '-kmin', str(k)], stdout=subprocess.PIPE, check=True)
+		# a kmin that is too big seems to lead to btormc ignoring bad properties.. #'-kmin', str(k)
+		r = subprocess.run([self.bin, filename, '-kmax', str(k)], stdout=subprocess.PIPE, check=True)
 		msg = r.stdout.decode('utf-8')
 		success = 'sat' not in msg.split('\n')[0]
 		delta = time.time() - start
