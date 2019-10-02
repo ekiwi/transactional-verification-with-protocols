@@ -70,5 +70,5 @@ class Spec:
 		self.arch_state = default(arch_state, {})
 		self.transactions = default(transactions, [])
 		self.invariances = default(invariances, [])
-		self.mapping = default(mapping, lambda state: [Bool(True)])
+		self.mapping = default(mapping, lambda state: [])
 		self.case_split = default(case_split, list())
