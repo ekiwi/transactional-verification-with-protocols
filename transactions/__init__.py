@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 from .yosys import require_yosys
-from .solver import Solver
 from .module import Module
 from .spec import Spec, Map, BitSerial, Repeat, Transaction
 from .mc import MCProofEngine
