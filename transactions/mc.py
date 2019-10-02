@@ -8,7 +8,7 @@ from pysmt.walkers import DagWalker
 
 from .module import Module
 from .yosys import parse_yosys_btor
-from .utils import equal
+from .utils import equal, default
 from .verifier import BoundedCheck
 
 class MCProofEngine:
@@ -56,7 +56,9 @@ class MCProofEngine:
 				solver.add_assert(in_cycle(ii, aa))
 
 		# run solver
-		valid, delta = solver.check(check.cycles, do_init=check.initialize)
+		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.btor2")
+		else:                       filename = None
+		valid, delta = solver.check(check.cycles, do_init=check.initialize, filename=filename)
 		return valid, delta
 
 class BtorMC:
@@ -178,9 +180,9 @@ class BtorMC:
 		bad = self._l(f"not {self._bv(1)} {good}")
 		return self._l(f"bad {bad}")
 
-	def check(self, k, do_init=False,):
+	def check(self, k, do_init=False, filename=None):
 		start = time.time()
-		filename = tempfile.mkstemp()[1]
+		filename = default(filename, tempfile.mkstemp()[1])
 		#print(filename)
 		# remove outputs
 		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
