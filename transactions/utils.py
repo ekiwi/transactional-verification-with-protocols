@@ -16,18 +16,22 @@ def get_type(expr):
 	assert False, f"should not get here! {expr}"
 
 def is_bool(expr):
-	if expr.is_bool_constant() or expr.is_bool_op(): return True
-	if expr.is_bv_constant() or expr.is_bv_op(): return False
-	if expr.is_symbol(): return expr.symbol_type().is_bool_type()
-	if expr.is_function_application():
-		return expr.function_name().symbol_type().return_type.is_bool_type()
-	if expr.is_select():
-		return expr.arg(0).get_type().elem_type.is_bool_type()
-	if expr.is_ite():
-		return is_bool(expr.arg(1))
-	if expr.is_store() or expr.is_array_value():
-		return False
-	assert False, f"should not get here! {expr}"
+	try:
+		return expr.get_type().is_bool_type()
+	except:
+		if expr.is_bool_constant() or expr.is_bool_op(): return True
+		if expr.is_bv_constant() or expr.is_bv_op(): return False
+		if expr.is_symbol(): return expr.symbol_type().is_bool_type()
+		if expr.is_function_application():
+			return expr.function_name().symbol_type().return_type.is_bool_type()
+		if expr.is_select():
+			return expr.arg(0).get_type().elem_type.is_bool_type()
+		if expr.is_ite():
+			return is_bool(expr.arg(1))
+		if expr.is_store() or expr.is_array_value():
+			return False
+		else:
+			assert False, f"should not get here! {expr}"
 
 def to_bool(expr):
 	assert not is_bool(expr)
