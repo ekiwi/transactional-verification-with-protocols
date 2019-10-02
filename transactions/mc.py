@@ -57,14 +57,7 @@ class MCProofEngine:
 
 		# run solver
 		valid, delta = solver.check(check.cycles, do_init=check.initialize)
-		if self.verbose:
-			if valid:
-				print(f"✔️ {check.name} ({delta:.2f} sec)")
-			else:
-				print(f"❌ {check.name} ({delta:.2f} sec)")
-
-		assert valid, f"found counter example to check {check.name}"
-		return valid
+		return valid, delta
 
 class BtorMC:
 	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):

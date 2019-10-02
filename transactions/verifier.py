@@ -26,6 +26,7 @@ class BoundedCheck:
 		self.initialize = False
 		self._sym_names: Set[str] = set(self._mod.signals.keys())
 		self._active = False
+		self.verbose = True
 	@property
 	def cycles(self):
 		assert self._active
@@ -69,7 +70,15 @@ class BoundedCheck:
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		if exc_type is not None: return
-		self._engine.check(self, mod=self._mod)
+		valid, delta = self._engine.check(self, mod=self._mod)
+		if self.verbose:
+			if valid:
+				print(f"✔️ {self.name} ({delta:.3f} sec)")
+			else:
+				print(f"❌ {self.name} ({delta:.3f} sec)")
+
+		assert valid, f"found counter example to check {check.name}"
+		return valid
 
 class Verifier:
 	def __init__(self, mod: Module, spec: Spec, engine):

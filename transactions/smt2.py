@@ -13,7 +13,6 @@ from .module import Module
 
 class SMT2ProofEngine:
 	def __init__(self, outdir=None):
-		self.verbose = True
 		self.outdir = outdir
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
@@ -78,17 +77,7 @@ class SMT2ProofEngine:
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
 		else:                                  filename = None
 		valid, delta = solver.solve(filename=filename)
-		if self.verbose:
-			if valid:
-				print(f"✔️ {check.name} ({delta:.2f} sec)")
-			else:
-				print(f"❌ {check.name} ({delta:.2f} sec)")
-
-		assert valid, f"found counter example to check {check.name}"
-		return valid
-
-
-
+		return valid, delta
 
 
 sat = "sat"
