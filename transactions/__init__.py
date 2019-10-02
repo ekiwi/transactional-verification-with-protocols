@@ -8,3 +8,4 @@ from .spec import Spec, Map, BitSerial, Repeat, Transaction
 from .mc import MCProofEngine
 from .verifier import Verifier
 from .utils import conjunction
+from .smt2 import SMT2ProofEngine

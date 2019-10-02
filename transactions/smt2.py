@@ -3,7 +3,7 @@
 
 # SMT2 Lib based backend for BoundedCheck
 
-import subprocess, tempfile
+import subprocess, tempfile, os, itertools
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import SmtLibScript, smtcmd
 import time
@@ -21,43 +21,63 @@ class SMT2ProofEngine:
 	def check(self, check: BoundedCheck, mod: Module):
 		solver = Solver(header=mod.smt2_src)
 
+		# derive function names for module unrolling
+		state_t = Type(mod.name + "_s")
+		transition_fun = Symbol(mod.name + "_t", FunctionType(BOOL, [state_t, state_t]))
+
 		# unroll for N cycles
-		states =
-		assert check.cycles < 2**16, "Too many cycles"
-		solver.comment(f"Unroll for k={check.cycles} cycles")
-		cycle = Symbol("cycle_count", BVType(16))
-		solver.state(cycle, init=BV(0, 16), next=BVAdd(cycle, BV(1, 16)))
-		solver.add_assert(Not(Equals(cycle, BV(check.cycles + 1, 16))))
-		def in_cycle(ii: int, expr):
-			return Implies(Equals(cycle, BV(ii, 16)), expr)
+		states = [Symbol(f"s{ii}", state_t) for ii in range(check.cycles + 1)]
+		# declare states
+		for st in states:
+			solver.fun(st)
+		# assert transition function on successive states
+		assert len(states) > 1, f"{states}"
+		for ii in range((len(states) - 1)):
+			solver.add(Function(transition_fun, [states[ii], states[ii + 1]]))
 
 		# declare constants
 		for sym in check.constants:
-			solver.comment(f"Symbolic Constant: {sym}")
-			solver.state(sym, next=sym)
+			solver.fun(sym)
 
 		# compute functions
 		for sym, expr in check.functions:
-			solver.comment(f"Function: {sym} = {expr}")
-			solver.state(sym, next=sym, init=expr)
+			solver.fun(sym)
+			solver.add(equal(sym, expr))
 
-		# add invariant assumptions
-		for aa in check.assumptions:
-			solver.add_assume(aa)
+		# assert initialization functions in first state if requested
+		if check.initialize:
+			init_fun = Symbol(mod.name + "_i", FunctionType(BOOL, [state_t]))
+			solver.add(Function(init_fun, [states[0]]))
+
+		# add invariant assumptions to steps
+		assumptions = [step.assumptions + check.assumptions for step in check.steps]
+		assertions  = [step.assertions for step in check.steps]
+
+		# map module i/o and state to cycle dependant function
+		symbols = [Symbol(s.name, s.tpe) for s in itertools.chain(mod.inputs.values(), mod.outputs.values(), mod.state.values())]
+		# TODO: compute mappings lazily as not all of them will be used
+		def map_sym(symbol: Symbol, state):
+			ft = FunctionType(symbol.symbol_type(), [state_t])
+			if symbol.symbol_type().is_array_type():
+				fn = mod.name + "_m " + symbol.symbol_name()
+			else:
+				fn = mod.name + "_n " + symbol.symbol_name()
+			return Function(Symbol(fn, ft), [state])
+		mappings = [{ sym: map_sym(sym, state) for sym in symbols } for state in states]
+		def in_cycle(ii, ee):
+			return substitute(ee, mappings[ii])
 
 		# check each step
-		for ii, step in enumerate(check.steps):
-			assert step.cycle == ii
-			solver.comment(f"-------------------")
-			solver.comment(f"- Cycle {ii}")
-			solver.comment(f"-------------------")
-			for aa in step.assumptions:
-				solver.add_assume(in_cycle(ii, aa))
-			for aa in step.assertions:
-				solver.add_assert(in_cycle(ii, aa))
+		for ii, (assums, asserts) in enumerate(zip(assumptions, assertions)):
+			for aa in assums:
+				solver.add(in_cycle(ii, aa))
+			for aa in asserts:
+				solver.add(in_cycle(ii, Not(aa)))
 
 		# run solver
-		valid, delta = solver.check(check.cycles)
+		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
+		else:                                  filename = None
+		valid, delta = solver.solve(filename=filename)
 		if self.verbose:
 			if valid:
 				print(f"✔️ {check.name} ({delta:.2f} sec)")
@@ -80,10 +100,6 @@ class Solver:
 		self.logic = logic
 		self.bin = bin
 		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
-		self.assertions = []
-		self.funs = []
-
-	def reset(self):
 		self.assertions = []
 		self.funs = []
 
@@ -110,80 +126,17 @@ class Solver:
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True)
 		return r.stdout.decode('utf-8').strip()
 
-
-	def solve(self, filename=None, get_model=True, get_values=None, case_split=None, print_time=False):
-		case_split = default(case_split, list())
+	def solve(self, filename=None):
 		filename = default(filename, tempfile.mkstemp()[1])
 
 		# generate script
 		script = SmtLibScript()
 		for f in self.funs:
 			script.add(smtcmd.DECLARE_FUN, [f])
-
-		if len(case_split) > 0:
-			# TODO: this check only works for unconstrained variables!
-			# check for completeness
-			script.add(smtcmd.ASSERT, [Not(disjunction(*case_split))])
-			r = self._check_sat(script=script, filename=filename)
-			if r == sat:
-				constraints = '\n'.join(str(c) for c in case_split)
-				raise RuntimeError(f"Incomplete case splitting:\n{constraints}")
-			script.commands.pop()
-
-			cases = case_split
-		else:
-			cases = [Bool(True)]
-
 		for a in self.assertions:
 			script.add(smtcmd.ASSERT, [a])
 
-
-		#print(cases)
-
-		assert len(cases) > 0, "0 cases are trivially unsat"
-		detected_sat = False
-		for case_constraint in cases:
-			# add constraint
-			script.add(smtcmd.ASSERT, [case_constraint])
-
-			if len(case_split) > 0:
-				print(f"assuming: {case_constraint}")
-
-			# check this case
-			start = time.time()
-			r = self._check_sat(script=script, filename=filename)
-			delta = time.time() - start
-			if print_time:
-				print(f"Check with {self.bin} returned {r} and took {delta}")
-			# if it failes (i.e. we get sat, emit a counter example)
-			if r == sat:
-				detected_sat = True
-				break
-
-			# remove constraints
-			script.commands.pop()
-
-
-
-		# if all cases are unsat -> return unsat
-		if not detected_sat:
-			return unsat, None
-
-		# if no model requested
-		if not get_model:
-			return sat, None
-
-		# get model
-		script.add(smtcmd.CHECK_SAT, [])
-		if get_values is None:
-			script.add(smtcmd.GET_MODEL, [])
-		else:
-			for vv in get_values:
-				script.add(smtcmd.GET_VALUE, [vv])
 		start = time.time()
-		self._write_scrip(filename=filename, script=script)
-		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True).stdout.decode('utf-8')
+		r = self._check_sat(script=script, filename=filename)
 		delta = time.time() - start
-		if print_time:
-			print(f"Generating a CEX with {self.bin} took {delta}")
-		return sat, r
+		return r == unsat, delta
