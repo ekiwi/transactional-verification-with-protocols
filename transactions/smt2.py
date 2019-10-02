@@ -113,7 +113,9 @@ class Solver:
 		self._write_scrip(filename=filename, script=script)
 		script.commands.pop() # remove check sat
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True)
-		return r.stdout.decode('utf-8').strip()
+		stdout = r.stdout.decode('utf-8').strip()
+		assert 'error' not in stdout, f"SMT solver call failed: {stdout}"
+		return stdout
 
 	def solve(self, filename=None):
 		filename = default(filename, tempfile.mkstemp()[1])

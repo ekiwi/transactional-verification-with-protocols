@@ -77,7 +77,7 @@ class BoundedCheck:
 			else:
 				print(f"❌ {self.name} ({delta:.3f} sec)")
 
-		assert valid, f"found counter example to check {check.name}"
+		assert valid, f"found counter example to check {self.name}"
 		return valid
 
 class Verifier:
@@ -154,12 +154,13 @@ class Verifier:
 
 	def proof_invariance(self, invariance):
 		# TODO: take strengthening invariances into account
-		with BoundedCheck("invariance holds after reset", self, cycles=1) as check:
+		expr = invariance(self.mod)
+		with BoundedCheck(f"invariance holds after reset ({expr})", self, cycles=1) as check:
 			# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
 			check.initialize_state()
 			check.assume_at(0, self.mod[self.mod.reset])
 			# invariance should hold after reset
-			check.assert_at(1, invariance(self.mod))
+			check.assert_at(1, expr)
 
 		for tran in self.spec.transactions:
 			cycles = len(tran.proto)

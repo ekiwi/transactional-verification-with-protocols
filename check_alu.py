@@ -117,14 +117,11 @@ def main() -> int:
 	mod = Module.load('serv_alu', src, reset='i_rst', ignore_wires=False)
 	spec = AluSpec()
 
-	reset_env()
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
 
-	#solver = Solver(mod.smt2_src)
-	#ee = ProofEngine(mod=mod,spec=spec, solver=solver, outdir="smt2")
-
-	ee = MCProofEngine(outdir="btor2")
+	ee = SMT2ProofEngine(outdir='smt2')
+	#ee = MCProofEngine(outdir="btor2")
 	veri = Verifier(mod, spec, ee)
 	veri.proof_all()
 
