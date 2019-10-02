@@ -5,10 +5,10 @@
 
 import subprocess, tempfile, os, itertools
 from pysmt.shortcuts import *
-from pysmt.smtlib.script import SmtLibScript, smtcmd, SmtLibCommand
+from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
 from .utils import *
-from .verifier import BoundedCheck
+from .verifier import BoundedCheck, CheckFailure, CheckSuccess
 from .module import Module
 
 class SMT2ProofEngine:
@@ -18,6 +18,7 @@ class SMT2ProofEngine:
 			assert os.path.isdir(self.outdir)
 
 	def check(self, check: BoundedCheck, mod: Module):
+		start = time.time()
 		solver = Solver(header=mod.smt2_src)
 
 		# derive function names for module unrolling
@@ -70,6 +71,8 @@ class SMT2ProofEngine:
 
 		# check each step
 		assertion_symbols = []
+		assert_to_cycle = []
+		assert_to_expr = []
 		for ii, (assums, asserts) in enumerate(zip(assumptions, assertions)):
 			solver.comment(f"-------------------")
 			solver.comment(f"- Cycle {ii}")
@@ -83,16 +86,22 @@ class SMT2ProofEngine:
 				solver.fun(asym)
 				solver.add(in_cycle(ii, equal(asym, aa)))
 				assertion_symbols.append(asym)
-
-		# try to find a counter example to any of the assertions
-		vc = Not(conjunction(*assertion_symbols))
-		solver.add(vc)
+				assert_to_cycle.append(ii)
+				assert_to_expr.append(aa)
 
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
 		else:                                  filename = None
-		valid, delta = solver.solve(filename=filename)
-		return valid, delta
+		valid, solver_time, assert_ii = solver.solve(filename=filename, vc=assertion_symbols)
+
+		total_time = time.time() - start
+
+		if valid:
+			return CheckSuccess(solver_time, total_time)
+		else:
+			cycle = assert_to_cycle[assert_ii]
+			assert_expr = assert_to_expr[assert_ii]
+			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr)
 
 
 sat = "sat"
@@ -143,10 +152,25 @@ class Solver:
 		assert 'error' not in stdout, f"SMT solver call failed: {stdout}"
 		return stdout
 
-	def solve(self, filename=None):
+	def _check_vc(self, vc, filename):
+		vc_validity = Not(conjunction(*vc))
+		return self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename)
+
+	def solve(self, vc, filename=None):
 		filename = default(filename, tempfile.mkstemp()[1])
 
 		start = time.time()
-		r = self._check_sat(funs=self.funs, assertions=self.assertions, filename=filename)
+		success = self._check_vc(vc, filename=filename) == unsat
+
+
+		bad_prop = -1
+		if not success:
+			# add properties until first bad state (TODO: could be improved with binary search)
+			for ii in range(len(vc)):
+				ff = os.path.splitext(filename)[0] + "_b{ii}.smt2"
+				if self._check_vc(vc[:ii+1], filename=ff) == sat:
+					bad_prop = ii
+					break
+
 		delta = time.time() - start
-		return r == unsat, delta
+		return success, delta, bad_prop

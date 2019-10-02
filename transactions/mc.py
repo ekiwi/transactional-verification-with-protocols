@@ -22,18 +22,12 @@ class MCProofEngine:
 		start = time.time()
 		solver = BtorMC(header=mod.btor2_src)
 
-		# keep track of asserts
-		assert_to_cycle = []
-		assert_to_expr = []
-
 		# unroll for N cycles
 		assert check.cycles < 2**16, "Too many cycles"
 		solver.comment(f"Unroll for k={check.cycles} cycles")
 		cycle = Symbol("cycle_count", BVType(16))
 		solver.state(cycle, init=BV(0, 16), next=BVAdd(cycle, BV(1, 16)))
 		solver.add_assert(Not(Equals(cycle, BV(check.cycles + 1, 16))))
-		assert_to_cycle.append(check.cycles + 1)
-		assert_to_expr.append(Not(Equals(cycle, BV(check.cycles + 1, 16))))
 		def in_cycle(ii: int, expr):
 			return Implies(Equals(cycle, BV(ii, 16)), expr)
 
@@ -50,6 +44,10 @@ class MCProofEngine:
 		# add invariant assumptions
 		for aa in check.assumptions:
 			solver.add_assume(aa)
+
+		# keep track of asserts
+		assert_to_cycle = []
+		assert_to_expr = []
 
 		# check each step
 		for ii, step in enumerate(check.steps):
@@ -74,9 +72,10 @@ class MCProofEngine:
 		if valid:
 			return CheckSuccess(solver_time, total_time)
 		else:
-			cycle = assert_to_cycle[assert_ii]
-			assert_expr = assert_to_expr[assert_ii]
-			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr)
+			# assert_ii includes the unrolling condition -> subtract one
+			cycle = assert_to_cycle[assert_ii-1]
+			assert_expr = assert_to_expr[assert_ii-1]
+			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr)
 
 class BtorMC:
 	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):
