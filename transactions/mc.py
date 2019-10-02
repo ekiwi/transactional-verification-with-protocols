@@ -180,15 +180,22 @@ class BtorMC:
 		bad = self._l(f"not {self._bv(1)} {good}")
 		return self._l(f"bad {bad}")
 
+	def exclude(self, header, command):
+		def check(ll: str):
+			if ll.startswith(';'): return False
+			parts = ll.strip().split(' ')
+			return len(parts) > 1 and ll.strip().split(' ')[1] == command
+		return [f"; {ll}" if check(ll) else ll for ll in header]
+
 	def check(self, k, do_init=False, filename=None):
 		start = time.time()
 		filename = default(filename, tempfile.mkstemp()[1])
 		#print(filename)
 		# remove outputs
-		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
+		header = self.exclude(self.header.split('\n'), 'output')
 		# remove init
 		if not do_init:
-			header = [ll for ll in header if 'init' not in ll]
+			header = self.exclude(header, 'init')
 		with open(filename, 'w') as ff:
 			print('\n'.join(header + self.lines), file=ff)
 		# a kmin that is too big seems to lead to btormc ignoring bad properties.. #'-kmin', str(k)
