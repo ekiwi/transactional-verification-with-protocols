@@ -5,7 +5,7 @@
 
 import subprocess, tempfile, os, itertools
 from pysmt.shortcuts import *
-from pysmt.smtlib.script import SmtLibScript, smtcmd
+from pysmt.smtlib.script import SmtLibScript, smtcmd, SmtLibCommand
 import time
 from .utils import *
 from .verifier import BoundedCheck
@@ -41,11 +41,13 @@ class SMT2ProofEngine:
 		# compute functions
 		for sym, expr in check.functions:
 			solver.fun(sym)
+			solver.comment(f"Function: {sym} = {expr}")
 			solver.add(equal(sym, expr))
 
 		# assert initialization functions in first state if requested
 		if check.initialize:
 			init_fun = Symbol(mod.name + "_i", FunctionType(BOOL, [state_t]))
+			solver.comment(f"Initialize State")
 			solver.add(Function(init_fun, [states[0]]))
 
 		# add invariant assumptions to steps
@@ -68,8 +70,13 @@ class SMT2ProofEngine:
 
 		# check each step
 		for ii, (assums, asserts) in enumerate(zip(assumptions, assertions)):
+			solver.comment(f"-------------------")
+			solver.comment(f"- Cycle {ii}")
+			solver.comment(f"-------------------")
+			solver.comment("Assumptions")
 			for aa in assums:
 				solver.add(in_cycle(ii, aa))
+			solver.comment("Assertions")
 			for aa in asserts:
 				solver.add(in_cycle(ii, Not(aa)))
 
@@ -95,10 +102,13 @@ class Solver:
 	def add(self, *assertions):
 		self.assertions += assertions
 
+	def comment(self, s: str):
+		self.assertions.append(str(s))
+
 	def fun(self, function):
 		self.funs.append(function)
 
-	def _write_scrip(self, filename, script):
+	def _write_scrip(self, filename, funs, assertions):
 		with open(filename, 'w') as ff:
 			print("(set-logic QF_AUFBV)", file=ff)
 			print("; smt script generated using yosys + a custom python script", file=ff)
@@ -106,12 +116,20 @@ class Solver:
 			print("; yosys generated:", file=ff)
 			print(self.header, file=ff)
 			print("; custom cmds", file=ff)
-			script.serialize(outstream=ff, daggify=False)
+			for f in funs:
+				SmtLibCommand(smtcmd.DECLARE_FUN, [f]).serialize(outstream=ff, daggify=False)
+				print("", file=ff)
+			for a in assertions:
+				if isinstance(a, str):
+					print(f"; {a}", file=ff)
+				else:
+					SmtLibCommand(smtcmd.ASSERT, [a]).serialize(outstream=ff, daggify=False)
+					print("", file=ff)
+			SmtLibCommand(smtcmd.CHECK_SAT, []).serialize(outstream=ff)
+			print("", file=ff)
 
-	def _check_sat(self, script, filename):
-		script.add(smtcmd.CHECK_SAT, [])
-		self._write_scrip(filename=filename, script=script)
-		script.commands.pop() # remove check sat
+	def _check_sat(self, filename, funs, assertions):
+		self._write_scrip(filename=filename, funs=funs, assertions=assertions)
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True)
 		stdout = r.stdout.decode('utf-8').strip()
 		assert 'error' not in stdout, f"SMT solver call failed: {stdout}"
@@ -120,14 +138,7 @@ class Solver:
 	def solve(self, filename=None):
 		filename = default(filename, tempfile.mkstemp()[1])
 
-		# generate script
-		script = SmtLibScript()
-		for f in self.funs:
-			script.add(smtcmd.DECLARE_FUN, [f])
-		for a in self.assertions:
-			script.add(smtcmd.ASSERT, [a])
-
 		start = time.time()
-		r = self._check_sat(script=script, filename=filename)
+		r = self._check_sat(funs=self.funs, assertions=self.assertions, filename=filename)
 		delta = time.time() - start
 		return r == unsat, delta
