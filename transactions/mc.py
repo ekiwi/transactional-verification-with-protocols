@@ -9,7 +9,7 @@ from pysmt.walkers import DagWalker
 from .module import Module
 from .yosys import parse_yosys_btor
 from .utils import equal, default
-from .verifier import BoundedCheck
+from .verifier import BoundedCheck, CheckSuccess, CheckFailure
 
 class MCProofEngine:
 	def __init__(self, outdir=None):
@@ -19,7 +19,12 @@ class MCProofEngine:
 			assert os.path.isdir(self.outdir)
 
 	def check(self, check: BoundedCheck, mod: Module):
+		start = time.time()
 		solver = BtorMC(header=mod.btor2_src)
+
+		# keep track of asserts
+		assert_to_cycle = []
+		assert_to_expr = []
 
 		# unroll for N cycles
 		assert check.cycles < 2**16, "Too many cycles"
@@ -27,6 +32,8 @@ class MCProofEngine:
 		cycle = Symbol("cycle_count", BVType(16))
 		solver.state(cycle, init=BV(0, 16), next=BVAdd(cycle, BV(1, 16)))
 		solver.add_assert(Not(Equals(cycle, BV(check.cycles + 1, 16))))
+		assert_to_cycle.append(check.cycles + 1)
+		assert_to_expr.append(Not(Equals(cycle, BV(check.cycles + 1, 16))))
 		def in_cycle(ii: int, expr):
 			return Implies(Equals(cycle, BV(ii, 16)), expr)
 
@@ -54,12 +61,22 @@ class MCProofEngine:
 				solver.add_assume(in_cycle(ii, aa))
 			for aa in step.assertions:
 				solver.add_assert(in_cycle(ii, aa))
+				assert_to_cycle.append(ii)
+				assert_to_expr.append(aa)
 
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.btor2")
 		else:                       filename = None
-		valid, delta = solver.check(check.cycles, do_init=check.initialize, filename=filename)
-		return valid, delta
+		valid, solver_time, assert_ii = solver.check(check.cycles, do_init=check.initialize, filename=filename)
+
+		total_time = time.time() - start
+
+		if valid:
+			return CheckSuccess(solver_time, total_time)
+		else:
+			cycle = assert_to_cycle[assert_ii]
+			assert_expr = assert_to_expr[assert_ii]
+			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr)
 
 class BtorMC:
 	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):
@@ -200,13 +217,17 @@ class BtorMC:
 			print('\n'.join(header + self.lines), file=ff)
 		# a kmin that is too big seems to lead to btormc ignoring bad properties.. #'-kmin', str(k)
 		r = subprocess.run([self.bin, filename, '-kmax', str(k)], stdout=subprocess.PIPE, check=True)
-		msg = r.stdout.decode('utf-8')
-		success = 'sat' not in msg.split('\n')[0]
+		msg = r.stdout.decode('utf-8').split('\n')
+		success = 'sat' not in msg[0]
 		delta = time.time() - start
 		if not success:
-			print(f"Check failed after {delta:.2f} sec!")
-			print(msg)
-		return success, delta
+			props = msg[1].strip().split(' ')
+			assert len(props) == 1, f"wrong number of bas properties! {props}"
+			assert props[0].startswith('b'), f"invalid bad property: {props[0]}"
+			bad_prop = int(props[0][1:])
+		else:
+			bad_prop = -1
+		return success, delta, bad_prop
 
 def smt_to_btor_sort(declare_line, typ):
 	if typ.is_bool_type(): return declare_line(f"sort bitvec 1")
