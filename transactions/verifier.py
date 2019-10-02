@@ -23,6 +23,7 @@ class BoundedCheck:
 		self.constants = []
 		self.functions = []
 		self.assumptions = []
+		self.initialize = False
 		self._sym_names: Set[str] = set(self._mod.signals.keys())
 		self._active = False
 	@property
@@ -57,6 +58,10 @@ class BoundedCheck:
 		assert name not in self._sym_names, f"symbol {symbol} already exists!"
 		self._sym_names.add(name)
 		self.functions.append((symbol, expr))
+
+	def initialize_state(self):
+		assert self._active
+		self.initialize = True
 
 	def __enter__(self):
 		self._active = True
@@ -141,6 +146,8 @@ class Verifier:
 	def proof_invariance(self, invariance):
 		# TODO: take strengthening invariances into account
 		with BoundedCheck("invariance holds after reset", self, cycles=1) as check:
+			# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
+			check.initialize_state()
 			check.assume_at(0, self.mod[self.mod.reset])
 			# invariance should hold after reset
 			check.assert_at(1, invariance(self.mod))

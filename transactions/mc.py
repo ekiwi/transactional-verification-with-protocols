@@ -56,7 +56,7 @@ class MCProofEngine:
 				solver.add_assert(in_cycle(ii, aa))
 
 		# run solver
-		valid, delta = solver.check(check.cycles)
+		valid, delta = solver.check(check.cycles, do_init=check.initialize)
 		if self.verbose:
 			if valid:
 				print(f"✔️ {check.name} ({delta:.2f} sec)")
@@ -185,12 +185,15 @@ class BtorMC:
 		bad = self._l(f"not {self._bv(1)} {good}")
 		return self._l(f"bad {bad}")
 
-	def check(self, k):
+	def check(self, k, do_init=False,):
 		start = time.time()
 		filename = tempfile.mkstemp()[1]
 		#print(filename)
 		# remove outputs
 		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
+		# remove init
+		if not do_init:
+			header = [ll for ll in header if 'init' not in ll]
 		with open(filename, 'w') as ff:
 			print('\n'.join(header + self.lines), file=ff)
 		r = subprocess.run([self.bin, filename, '-kmax', str(k), '-kmin', str(k)], stdout=subprocess.PIPE, check=True)
