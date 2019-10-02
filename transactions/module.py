@@ -13,7 +13,7 @@ def to_signal(name, typ, nid):
 	elif typ[0] == 'array':
 		assert typ[1][0] == 'bv'
 		assert typ[2][0] == 'bv'
-		return ArraySignal(name, address_bits=typ[2][1], data_bits=typ[1][1], nid=nid)
+		return ArraySignal(name, address_bits=typ[1][1], data_bits=typ[2][1], nid=nid)
 
 
 class Module:
