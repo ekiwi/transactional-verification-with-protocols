@@ -29,7 +29,7 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 		cmds += [f"hierarchy -top {top}", "proc", "opt", "flatten", "opt", mem, f"write_smt2 {wires} {outfile}"]
 		cmds += [f"write_btor -v {btor_out}"]
 		# '-DRISCV_FORMAL',
-		subprocess.run(['yosys', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
+		subprocess.run(['yosys', '-DRISCV_FORMAL', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		with open(outfile) as ff:
 			smt2_src = ff.read()
 		with open(btor_out) as ff:
