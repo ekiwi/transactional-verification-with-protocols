@@ -188,7 +188,7 @@ class BtorMC:
 	def check(self, k):
 		start = time.time()
 		filename = tempfile.mkstemp()[1]
-		print(filename)
+		#print(filename)
 		# remove outputs
 		header = [ll for ll in self.header.split('\n') if 'output' not in ll]
 		with open(filename, 'w') as ff:
