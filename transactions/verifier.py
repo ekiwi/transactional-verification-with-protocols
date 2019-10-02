@@ -145,9 +145,6 @@ class Verifier:
 			# invariance should hold after reset
 			check.assert_at(1, invariance(self.mod))
 
-		with BoundedCheck("invariance is inductive over idle period", self, cycles=1) as check:
-			print("TODO: specify IDLE as regular transaction!")
-
 		for tran in self.spec.transactions:
 			cycles = len(tran.proto)
 			with BoundedCheck(f"invariance is inductive over {tran.name} transaction", self, cycles=cycles) as check:

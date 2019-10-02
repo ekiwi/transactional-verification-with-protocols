@@ -57,8 +57,13 @@ class MCProofEngine:
 
 		# run solver
 		valid, delta = solver.check(check.cycles)
+		if self.verbose:
+			if valid:
+				print(f"✔️ {check.name} ({delta:.2f} sec)")
+			else:
+				print(f"❌ {check.name} ({delta:.2f} sec)")
+
 		assert valid, f"found counter example to check {check.name}"
-		print(f"Verified {check.name} in {delta:.2f} sec")
 		return valid
 
 class BtorMC:

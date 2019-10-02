@@ -62,16 +62,17 @@ class RegfileSpec(Spec):
 
 		case_split = [And(rd_enable, Equals(rd_addr, BV(ii, 5))) for ii in range(32)] + [Not(rd_enable)]
 
-		transactions = [Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
+		idle = Transaction(name="idle", args=[], ret_args=[], semantics=lambda regs:{'regs': regs}, proto=
+		Map('i_go', Bool(False)) | Map('i_rd_en', Bool(False)))
 
-		idle = lambda mod: And(Not(mod['i_go']), Not(mod['i_rd_en']))
+		transactions = [idle, Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
 		# TODO: infer
 		def x0_inv(state):
 			m = state['memory']
 			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
 		inv = [lambda state: Equals(state['wcnt'], BV(0, 5)), x0_inv]
-		super().__init__(arch_state={'regs': regs}, mapping=mapping, transactions=transactions, idle=idle, invariances=inv, case_split=case_split)
+		super().__init__(arch_state={'regs': regs}, mapping=mapping, transactions=transactions, invariances=inv, case_split=case_split)
 
 
 regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')

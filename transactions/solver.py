@@ -58,7 +58,7 @@ class Solver:
 			script.add(smtcmd.DECLARE_FUN, [f])
 
 		if len(case_split) > 0:
-			# TODO: tghis check only works for unconstrained variables!
+			# TODO: this check only works for unconstrained variables!
 			# check for completeness
 			script.add(smtcmd.ASSERT, [Not(disjunction(*case_split))])
 			r = self._check_sat(script=script, filename=filename)

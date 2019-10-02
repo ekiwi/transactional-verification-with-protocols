@@ -66,10 +66,9 @@ class Transaction:
 		self.semantics = semantics
 
 class Spec:
-	def __init__(self, arch_state=None, mapping=None, transactions=None, idle=None, invariances=None, case_split=None):
+	def __init__(self, arch_state=None, mapping=None, transactions=None, invariances=None, case_split=None):
 		self.arch_state = default(arch_state, {})
 		self.transactions = default(transactions, [])
-		self.idle = default(idle, lambda state: Bool(True))
 		self.invariances = default(invariances, [])
 		self.mapping = default(mapping, lambda state: [Bool(True)])
 		self.case_split = default(case_split, list())
