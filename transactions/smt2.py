@@ -69,6 +69,7 @@ class SMT2ProofEngine:
 			return substitute(ee, mappings[ii])
 
 		# check each step
+		assertion_symbols = []
 		for ii, (assums, asserts) in enumerate(zip(assumptions, assertions)):
 			solver.comment(f"-------------------")
 			solver.comment(f"- Cycle {ii}")
@@ -78,7 +79,14 @@ class SMT2ProofEngine:
 				solver.add(in_cycle(ii, aa))
 			solver.comment("Assertions")
 			for aa in asserts:
-				solver.add(in_cycle(ii, Not(aa)))
+				asym = Symbol(f"b{len(assertion_symbols)}")
+				solver.fun(asym)
+				solver.add(in_cycle(ii, equal(asym, aa)))
+				assertion_symbols.append(asym)
+
+		# try to find a counter example to any of the assertions
+		vc = Not(conjunction(*assertion_symbols))
+		solver.add(vc)
 
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
