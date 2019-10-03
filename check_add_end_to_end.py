@@ -8,7 +8,7 @@ from transactions import *
 # experiment to see what happens if we give it a single instruction
 
 class ServTop(Spec):
-	def __init__(self, bits):
+	def __init__(self):
 
 		########## Architectural State: register file
 		regs = ArrayType(BVType(5), BVType(32))  # ArraySignal('x', 5, 32)
@@ -30,29 +30,34 @@ class ServTop(Spec):
 
 		#### Add Instruction
 		funct7 = BV(0, 7)
-		rs2 = Symbol('rs2', BVType(5))
-		rs1 = Symbol('rs1', BVType(1))
+		rs2 = Symbol('spec_rs2', BVType(5))
+		rs1 = Symbol('spec_rs1', BVType(5))
 		funct3 = BV(0, 3)
-		rd = Symbol('rd', BVType(1))
+		rd = Symbol('spec_rd', BVType(5))
 		opcode = BV(0b0110011, 7)
 
 		instruction = cat(funct7, rs2, rs1, funct3, rd, opcode)
 
+		# protocol
+		first_cycle = Map('i_ibus_rdt', instruction) | Map('i_ibus_ack', Bool(True)) | Map('o_ibus_cyc', Bool(True))
+		middle = Map('i_ibus_ack', Bool(False)) | Map('o_ibus_cyc', Bool(False))
+		last_cycle = Map('i_ibus_ack', Bool(False)) | Map('o_ibus_cyc', Bool(True))
+		always = Map('i_timer_irq', Bool(False))
 
-		protocol = (Map('i_timer_irq', Bool(False)) | Map('i_ibus_rdt', instruction) | Map('i_ibus_ack', True)) * 3
+		protocol = (first_cycle + (middle * 34) + last_cycle) | (always * 36)
 
 
-		def semantics(rs1, rs2, rd, regs):
-			a = Select(regs, rs1)
-			b = Select(regs, rs2)
+		def semantics(spec_rs1, spec_rs2, spec_rd, regs):
+			a = Select(regs, spec_rs1)
+			b = Select(regs, spec_rs2)
 			c = BVAdd(a, b)
-			regs_n = Store(regs, rd, c)
+			regs_n = Store(regs, spec_rd, c)
 			return {'regs': regs_n}
 
 		def x0_inv(state):
-			m = state['memory']
+			m = state['regfile.memory']
 			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
-		inv = [lambda state: Equals(state['wcnt'], BV(0, 5)), x0_inv]
+		inv = [lambda state: Equals(state['regfile.wcnt'], BV(0, 5)), x0_inv]
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
 
@@ -69,8 +74,8 @@ def main() -> int:
 
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
-	#ee = SMT2ProofEngine(outdir='smt2')
-	ee = MCProofEngine(outdir="btor2")
+	ee = SMT2ProofEngine(outdir='smt2')
+	#ee = MCProofEngine(outdir="btor2")
 	veri = Verifier(mod, spec, ee)
 	veri.proof_all()
 
