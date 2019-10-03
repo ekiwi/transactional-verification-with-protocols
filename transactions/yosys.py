@@ -135,7 +135,8 @@ def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
 		mod[cat] = {}
 		for name, args in smt2_names[cat].items():
 			if name not in btor_names[cat] and cat in {'registers', 'wires'}:
-				print(f"WARN: {cat} {name} missing form btor. Ignoring for now...")
+				if cat != 'wires':
+					print(f"WARN: {cat} {name} missing form btor. Ignoring for now...")
 				continue
 			assert name in btor_names[cat], f"{cat} {name} missing form btor"
 			bnode = btor_names[cat][name]
