@@ -60,6 +60,11 @@ class ServTop(Spec):
 		inv = [
 			lambda state: Equals(state['regfile.wcnt'], BV(0, 5)),
 			lambda state: Equals(state['decode.state'], BV(0, 2)),
+			lambda state: Equals(state['decode.cnt'], BV(0, 5)),
+			lambda state: Iff(state['decode.pending_irq'], Bool(False)),
+			lambda state: Iff(state['decode.stage_one_done'], Bool(False)),
+			lambda state: Iff(state['decode.o_ctrl_jump'], Bool(False)),
+			lambda state: Equals(state['decode.o_cnt_r'], BV(1, 4)),
 			x0_inv]
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
