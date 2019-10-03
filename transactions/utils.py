@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from functools import reduce
-from pysmt.shortcuts import Equals, BV, Iff, And, Or
+from pysmt.shortcuts import Equals, BV, Iff, And, Or, BVConcat
 
 def default(expr, default):
 	return expr if expr is not None else default
@@ -48,6 +48,11 @@ def conjunction(*args):
 	assert len(args) > 0
 	if len(args) == 1: return args[0]
 	else: return reduce(And, args)
+
+def cat(*args):
+	assert len(args) > 0
+	if len(args) == 1: return args[0]
+	else: return reduce(BVConcat, args)
 
 def disjunction(*args):
 	assert len(args) > 0
