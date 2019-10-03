@@ -65,6 +65,7 @@ class ServTop(Spec):
 			lambda state: Iff(state['decode.stage_one_done'], Bool(False)),
 			lambda state: Iff(state['decode.o_ctrl_jump'], Bool(False)),
 			lambda state: Equals(state['decode.o_cnt_r'], BV(1, 4)),
+			lambda state: Iff(state['ctrl.en_pc_r'], Bool(True)),
 			x0_inv]
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
