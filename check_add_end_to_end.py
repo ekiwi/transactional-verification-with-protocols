@@ -58,7 +58,7 @@ class ServTop(Spec):
 
 		super().__init__(transactions=transactions, arch_state={'regs': regs}, mapping=mapping, invariances=inv)
 
-src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg', 'serv_bufreg', 'serv_csr', 'serv_ctrl', 'serv_decode', 'serv_mem_if', 'serv_top']]
+src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg', 'serv_bufreg', 'serv_csr', 'serv_ctrl', 'serv_decode', 'serv_regfile', 'serv_mem_if', 'serv_top']]
 
 def main() -> int:
 	version = require_yosys()
