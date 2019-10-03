@@ -27,7 +27,8 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 		cmds  = [f"read_verilog -sv -defer {ff}" for ff in filenames]
 		cmds += [f"prep -flatten -nordff -top {top}", "setattr -unset keep", f"write_smt2 {wires} {outfile}"]
 		cmds += [f"write_btor -v {btor_out}"]
-		subprocess.run(['yosys', '-DRISCV_FORMAL', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
+		subprocess.run(['yosys', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
+		#'-DRISCV_FORMAL',
 		with open(outfile) as ff:
 			smt2_src = ff.read()
 		with open(btor_out) as ff:
