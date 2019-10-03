@@ -165,12 +165,17 @@ class Solver:
 
 		bad_prop = -1
 		if not success:
-			# add properties until first bad state (TODO: could be improved with binary search)
-			for ii in range(len(vc)):
+			# binary search for first failing property
+			good = -1
+			fail = len(vc) - 1
+			while fail - good > 1:
+				assert fail > good
+				ii = good + (fail - good) // 2
 				ff = os.path.splitext(filename)[0] + "_b{ii}.smt2"
-				if self._check_vc(vc[:ii+1], filename=ff) == sat:
-					bad_prop = ii
-					break
+				ii_fail = self._check_vc(vc[:ii+1], filename=ff) == sat
+				if ii_fail: fail = ii
+				else:       good = ii
+			bad_prop = fail
 
 		delta = time.time() - start
 		return success, delta, bad_prop
