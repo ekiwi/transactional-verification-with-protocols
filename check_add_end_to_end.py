@@ -57,7 +57,10 @@ class ServTop(Spec):
 		def x0_inv(state):
 			m = state['regfile.memory']
 			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
-		inv = [lambda state: Equals(state['regfile.wcnt'], BV(0, 5)), x0_inv]
+		inv = [
+			lambda state: Equals(state['regfile.wcnt'], BV(0, 5)),
+			lambda state: Equals(state['decode.state'], BV(0, 2)),
+			x0_inv]
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
 
