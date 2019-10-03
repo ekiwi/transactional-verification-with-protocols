@@ -37,12 +37,12 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 
 def parse_yosys_smt2(smt2_src: str) -> dict:
 	grammar = {
-		'inputs': re.compile(r'; yosys-smt2-input ([^\s]+) ([\d+])'),
-		'outputs': re.compile(r'; yosys-smt2-output ([^\s]+) ([\d+])'),
-		'registers': re.compile(r'; yosys-smt2-register ([^\s]+) ([\d+])'),
-		'memories': re.compile(r'; yosys-smt2-memory ([^\s]+) ([\d+]) ([\d+]) ([\d+]) ([\d+]) (async|sync)'),
+		'inputs': re.compile(r'; yosys-smt2-input ([^\s]+) ([\d]+)'),
+		'outputs': re.compile(r'; yosys-smt2-output ([^\s]+) ([\d]+)'),
+		'registers': re.compile(r'; yosys-smt2-register ([^\s]+) ([\d]+)'),
+		'memories': re.compile(r'; yosys-smt2-memory ([^\s]+) ([\d]+) ([\d]+) ([\d]+) ([\d]+) (async|sync)'),
 		'modules': re.compile(r'; yosys-smt2-module ([^\s]+)'),
-		'wires': re.compile(r'; yosys-smt2-wire ([^\s]+) ([\d+])'),
+		'wires': re.compile(r'; yosys-smt2-wire ([^\s]+) ([\d]+)'),
 	}
 	res = defaultdict(list)
 	for line in smt2_src.splitlines():
