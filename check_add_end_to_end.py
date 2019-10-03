@@ -48,6 +48,7 @@ class ServTop(Spec):
 
 
 		def semantics(spec_rs1, spec_rs2, spec_rd, regs):
+			# TODO: special treatment for read/write from/to x0
 			a = Select(regs, spec_rs1)
 			b = Select(regs, spec_rs2)
 			c = BVAdd(a, b)
