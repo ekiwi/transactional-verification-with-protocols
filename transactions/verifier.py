@@ -175,29 +175,27 @@ class Verifier:
 		for trans in self.spec.transactions:
 			self.proof_transaction(trans)
 
-	def proof_invariance(self, invariance):
-		# TODO: take strengthening invariances into account
-		expr = invariance(self.mod)
-		with BoundedCheck(f"invariance holds after reset ({expr})", self, cycles=1) as check:
-			# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
-			check.initialize_state()
-			check.assume_at(0, self.mod[self.mod.reset])
-			# invariance should hold after reset
-			check.assert_at(1, expr)
+	def proof_invariances(self):
+		invariances = [ii(self.mod) for ii in self.spec.invariances]
+
+		for ii in invariances:
+			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
+				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
+				check.initialize_state()
+				check.assume_at(0, self.mod[self.mod.reset])
+				# invariance should hold after reset
+				check.assert_at(1, ii)
 
 		for tran in self.spec.transactions:
 			cycles = len(tran.proto)
-			with BoundedCheck(f"invariance is inductive over {tran.name} transaction", self, cycles=cycles) as check:
+			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
 				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
 				# assume this particular invariance
-				check.assume_at(0, invariance(self.mod))
+				for ii in invariances:
+					check.assume_at(0, ii)
 				# invariance should hold after transaction
-				check.assert_at(cycles, invariance(self.mod))
-
-	def proof_invariances(self):
-		# TODO: take invariance dependence into account
-		for inv in self.spec.invariances:
-			self.proof_invariance(inv)
+				for ii in invariances:
+					check.assert_at(cycles, ii)
 
 	def proof_all(self):
 		self.proof_invariances()
