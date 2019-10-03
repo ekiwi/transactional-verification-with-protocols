@@ -171,7 +171,7 @@ class Solver:
 			while fail - good > 1:
 				assert fail > good
 				ii = good + (fail - good) // 2
-				ff = os.path.splitext(filename)[0] + "_b{ii}.smt2"
+				ff = os.path.splitext(filename)[0] + f"_b{ii}.smt2"
 				ii_fail = self._check_vc(vc[:ii+1], filename=ff) == sat
 				if ii_fail: fail = ii
 				else:       good = ii
