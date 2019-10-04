@@ -9,7 +9,7 @@ from pysmt.walkers import DagWalker
 from .module import Module
 from .yosys import parse_yosys_btor
 from .utils import equal, default
-from .verifier import BoundedCheck, CheckSuccess, CheckFailure
+from .bounded import BoundedCheck, CheckSuccess, CheckFailure
 
 class MCProofEngine:
 	def __init__(self, outdir=None):

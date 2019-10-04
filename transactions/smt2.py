@@ -8,7 +8,7 @@ from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
 from .utils import *
-from .verifier import BoundedCheck, CheckFailure, CheckSuccess
+from .bounded import BoundedCheck, CheckFailure, CheckSuccess
 from .module import Module
 
 class SMT2ProofEngine:
