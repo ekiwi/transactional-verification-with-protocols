@@ -3,7 +3,7 @@
 
 # SMT2 Lib based backend for BoundedCheck
 
-import subprocess, tempfile, os, itertools
+import subprocess, tempfile, os, itertools, re
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
@@ -55,7 +55,7 @@ class SMT2ProofEngine:
 		assumptions = [step.assumptions + check.assumptions for step in check.steps]
 		assertions  = [step.assertions for step in check.steps]
 
-		# map module i/o and state to cycle dependant function
+		# map module i/o and state to cycle dependent function
 		symbols = [Symbol(s.name, s.tpe) for s in itertools.chain(mod.inputs.values(), mod.outputs.values(), mod.state.values())]
 		# TODO: compute mappings lazily as not all of them will be used
 		def map_sym(symbol: Symbol, state):
@@ -101,8 +101,46 @@ class SMT2ProofEngine:
 		else:
 			cycle = assert_to_cycle[assert_ii]
 			assert_expr = assert_to_expr[assert_ii]
-			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr)
+			model, model_time = self._generate_model(assertion_symbols, assert_ii, cycle, filename, mappings, solver)
+			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr, model, model_time)
 
+	def _generate_model(self, assertion_symbols, assert_ii, cycle, filename, mappings, solver):
+		ff = os.path.splitext(filename)[0] + f"_b{assert_ii}_model.smt2"
+
+		# only include one failing check
+		vc = assertion_symbols[:assert_ii + 1]
+
+		# add symbols for all signals we want to read
+		reads = []
+		for ii in range(cycle + 1):
+			solver.comment(f"----------------------------")
+			solver.comment(f"- Cycle {ii} Signal Reads")
+			solver.comment(f"----------------------------")
+			for sym, expr in mappings[ii].items():
+				# skip memories for now
+				if sym.symbol_type().is_array_type():
+					continue
+				name = f"{sym.symbol_name()}_cyc{ii}_read"
+				read_sym = Symbol(name, sym.symbol_type())
+				solver.fun(read_sym)
+				solver.add(equal(read_sym, expr))
+				reads.append(read_sym)
+
+		# query solver for values
+		values, delta = solver.get_model(vc=vc, cycle=cycle, reads=reads, filename=ff)
+
+		# organize values in model
+		model = []
+		for ii in range(cycle + 1):
+			model.append(dict())
+			for sym, expr in mappings[ii].items():
+				# skip memories for now
+				if sym.symbol_type().is_array_type():
+					continue
+				name = f"{sym.symbol_name()}_cyc{ii}_read"
+				model[ii][sym.symbol_name()] = values[name]
+
+		return model, delta
 
 sat = "sat"
 unsat = "unsat"
@@ -125,7 +163,7 @@ class Solver:
 	def fun(self, function):
 		self.funs.append(function)
 
-	def _write_scrip(self, filename, funs, assertions):
+	def _write_scrip(self, filename, funs, assertions, cmds: list):
 		with open(filename, 'w') as ff:
 			print("(set-logic QF_AUFBV)", file=ff)
 			print("; smt script generated using yosys + a custom python script", file=ff)
@@ -142,11 +180,13 @@ class Solver:
 				else:
 					SmtLibCommand(smtcmd.ASSERT, [a]).serialize(outstream=ff, daggify=False)
 					print("", file=ff)
-			SmtLibCommand(smtcmd.CHECK_SAT, []).serialize(outstream=ff)
-			print("", file=ff)
+			for cmd in cmds:
+				cmd.serialize(outstream=ff)
+				print("", file=ff)
 
-	def _check_sat(self, filename, funs, assertions):
-		self._write_scrip(filename=filename, funs=funs, assertions=assertions)
+	def _check_sat(self, filename, funs, assertions, get_cmds=[]):
+		cmds = [SmtLibCommand(smtcmd.CHECK_SAT, [])] + get_cmds
+		self._write_scrip(filename=filename, funs=funs, assertions=assertions, cmds=cmds)
 		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True)
 		stdout = r.stdout.decode('utf-8').strip()
 		assert 'error' not in stdout, f"SMT solver call failed: {stdout}"
@@ -179,3 +219,44 @@ class Solver:
 
 		delta = time.time() - start
 		return success, delta, bad_prop
+
+	def get_model(self, vc: list, cycle: int, reads: list, filename):
+		""" call this after a failing solver call  and only hand it the vc you are interested in """
+		start = time.time()
+
+		# get values
+		get_cmds = [SmtLibCommand(smtcmd.GET_VALUE, [vv]) for vv in reads]
+
+		# run SMT solver
+		vc_validity = Not(conjunction(*vc))
+		out = self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
+		lines = out.split('\n')
+		assert lines[0] == 'sat', f"model generation is only supported for satisfiable queries. Expected `sat` got `{lines[0]}`"
+
+		# parse model
+		values = self._parse_model(lines[1:])
+		for rr in reads: assert rr.symbol_name() in values, f"{rr} is missing from the values returned by the solver"
+		delta = time.time() - start
+		return values, delta
+
+
+	def _parse_model(self, lines):
+		suffix = r'\)\)'
+		bv_bool = '(#b[01]+|false|true)'
+		re_read = re.compile(f'\(\(([a-zA-Z_0-9\.]+)\s+' + bv_bool + suffix)
+
+		def parse_value(vv):
+			if vv == 'true': return "1"
+			if vv == 'false': return "0"
+			assert len(vv) > 2
+			return vv[2:]
+
+		values = {}
+		for line in lines:
+			if line.strip() == 'sat': continue
+			m = re_read.match(line)
+			assert m is not None, f"Failed to parse line: {line}"
+			name, value = m.groups()
+			values[name] = parse_value(value)
+
+		return values

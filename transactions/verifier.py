@@ -22,11 +22,13 @@ class CheckResult:
 	def __repr__(self): return str(self)
 
 class CheckFailure(CheckResult):
-	def __init__(self, solver_time: float, total_time: float, cycle: int , assert_ii: int, assert_expr):
+	def __init__(self, solver_time: float, total_time: float, cycle: int , assert_ii: int, assert_expr, model = None, model_time: float = 0.0):
 		super().__init__(solver_time, total_time)
 		self.cycle = cycle
 		self.assert_ii = assert_ii
 		self.assert_expr = assert_expr
+		self.model = model
+		self.model_time = model_time
 	def __str__(self):
 		return f"Fail! b{self.assert_ii} `{self.assert_expr}` @ cycle {self.cycle}. After: {super().__str__()}."
 
