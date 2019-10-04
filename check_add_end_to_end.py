@@ -44,7 +44,8 @@ class ServTop(Spec):
 		last_cycle = Map('i_ibus_ack', Bool(False)) | Map('o_ibus_cyc', Bool(True))
 		always = Map('i_timer_irq', Bool(False))
 
-		protocol = (first_cycle + (middle * 34) + last_cycle) | (always * 36)
+		protocol = (first_cycle + (middle * 33) + last_cycle) | (always * 35)
+		assert len(protocol) == 35
 
 
 		def semantics(spec_rs1, spec_rs2, spec_rd, regs):
@@ -59,7 +60,8 @@ class ServTop(Spec):
 			m = state['regfile.memory']
 			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
 		inv = [
-			lambda state: Equals(state['regfile.wcnt'], BV(0, 5)),
+			lambda state: Iff(state['regfile.o_ready'], Bool(False)),
+			lambda state: Iff(state['regfile.t'],Bool(False)),
 			lambda state: Equals(state['decode.state'], BV(0, 2)),
 			lambda state: Equals(state['decode.cnt'], BV(0, 5)),
 			lambda state: Iff(state['decode.pending_irq'], Bool(False)),
@@ -67,6 +69,7 @@ class ServTop(Spec):
 			lambda state: Iff(state['decode.o_ctrl_jump'], Bool(False)),
 			lambda state: Equals(state['decode.o_cnt_r'], BV(1, 4)),
 			lambda state: Iff(state['ctrl.en_pc_r'], Bool(True)),
+			lambda state: Equals(state['regfile.wcnt'], BV(0, 5)),
 			x0_inv]
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
