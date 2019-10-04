@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from typing import Set
+from typing import Set, Dict, List, Optional
 
 class CheckStep:
 	def __init__(self, cycle):
@@ -17,13 +17,12 @@ class CheckResult:
 	def __repr__(self): return str(self)
 
 class CheckFailure(CheckResult):
-	def __init__(self, solver_time: float, total_time: float, cycle: int , assert_ii: int, assert_expr, model = None, model_time: float = 0.0):
+	def __init__(self, solver_time: float, total_time: float, cycle: int , assert_ii: int, assert_expr, model = None):
 		super().__init__(solver_time, total_time)
 		self.cycle = cycle
 		self.assert_ii = assert_ii
 		self.assert_expr = assert_expr
 		self.model = model
-		self.model_time = model_time
 	def __str__(self):
 		return f"Fail! b{self.assert_ii} `{self.assert_expr}` @ cycle {self.cycle}. After: {super().__str__()}."
 
@@ -97,5 +96,47 @@ class BoundedCheck:
 			valid = "✔" if success else "❌"
 			print(f"{valid}️ {self.name} ({timing})")
 
+		if not success:
+			res.model.to_vcd('test.vcd')
+
 		assert success, f"found counter example to check {self.name}\n{res}"
 		return success
+
+from vcd import VCDWriter
+
+def get_size(typ):
+	if typ.is_bool_type(): return 1
+	elif typ.is_bv_type(): return typ.width
+	else: raise RuntimeError(f"unsupported type {typ}")
+
+class Model:
+	def __init__(self, name: str, cycles: int, signals: list, indices: Dict[str, int], data: List[List[Optional[int]]], creation_time: float = 0.0):
+		assert len(data) > 0, "empty data"
+		assert len(data) == cycles
+		self.name = name
+		self.cycles = cycles
+		self.signals = signals
+		self.indices = indices
+		self.data = data
+		self.creation_time = creation_time
+
+	def to_vcd(self, filename):
+		with open(filename, 'w') as ff:
+			with VCDWriter(ff, timescale='1 ns', date='today') as writer:
+				vars = {}
+				for sym in self.signals:
+					name = sym.symbol_name()
+					scope = '.'.join([self.name] + name.split('.')[:-1])
+					ii = self.indices[name]
+					vv = writer.register_var(scope=scope, name=name.split('.')[-1], var_type='wire',
+											 size=get_size(sym.symbol_type()),
+											 init=self.data[0][ii])
+					vars[ii] = vv
+				for cycle in range(1, len(self.data)):
+					past, now = self.data[cycle-1], self.data[cycle]
+					assert len(now) == len(past)
+					for signal in range(len(now)):
+						if past[signal] != now[signal]:
+							writer.change(var=vars[signal], timestamp=cycle, value=now[signal])
+
+				writer.close(len(self.data))

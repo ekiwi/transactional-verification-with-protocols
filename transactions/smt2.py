@@ -8,7 +8,7 @@ from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
 from .utils import *
-from .bounded import BoundedCheck, CheckFailure, CheckSuccess
+from .bounded import BoundedCheck, CheckFailure, CheckSuccess, Model
 from .module import Module
 
 class SMT2ProofEngine:
@@ -101,10 +101,10 @@ class SMT2ProofEngine:
 		else:
 			cycle = assert_to_cycle[assert_ii]
 			assert_expr = assert_to_expr[assert_ii]
-			model, model_time = self._generate_model(assertion_symbols, assert_ii, cycle, filename, mappings, solver)
-			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr, model, model_time)
+			model = self._generate_model(mod.name, assertion_symbols, assert_ii, cycle, filename, mappings, solver)
+			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr, model)
 
-	def _generate_model(self, assertion_symbols, assert_ii, cycle, filename, mappings, solver):
+	def _generate_model(self, mod_name, assertion_symbols, assert_ii, cycle, filename, mappings, solver) -> Model:
 		ff = os.path.splitext(filename)[0] + f"_b{assert_ii}_model.smt2"
 
 		# only include one failing check
@@ -130,17 +130,22 @@ class SMT2ProofEngine:
 		values, delta = solver.get_model(vc=vc, cycle=cycle, reads=reads, filename=ff)
 
 		# organize values in model
-		model = []
+		signals = [sym for sym in mappings[0].keys() if not sym.symbol_type().is_array_type()]
+		indices = {sym.symbol_name(): ii for ii, sym in enumerate(signals)}
+
+		data = []
 		for ii in range(cycle + 1):
-			model.append(dict())
+			data.append([None] * len(indices))
 			for sym, expr in mappings[ii].items():
 				# skip memories for now
 				if sym.symbol_type().is_array_type():
 					continue
 				name = f"{sym.symbol_name()}_cyc{ii}_read"
-				model[ii][sym.symbol_name()] = values[name]
+				data[ii][indices[sym.symbol_name()]] = values[name]
 
-		return model, delta
+		model = Model(name=mod_name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=delta)
+
+		return model
 
 sat = "sat"
 unsat = "unsat"
