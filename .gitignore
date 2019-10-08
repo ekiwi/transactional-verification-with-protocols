@@ -16,3 +16,6 @@ __pycache__/
 
 # CEX
 /*.csv
+
+# VCD
+*.vcd

@@ -1,0 +1,5 @@
+set i_rst 1
+step
+set i_rst 0
+step
+exit
