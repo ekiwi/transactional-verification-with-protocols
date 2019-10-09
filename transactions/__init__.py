@@ -8,3 +8,4 @@ from .mc import MCProofEngine
 from .verifier import Verifier
 from .utils import conjunction, cat
 from .smt2 import SMT2ProofEngine
+from .verilator import simulate

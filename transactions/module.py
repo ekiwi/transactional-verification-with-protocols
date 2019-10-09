@@ -21,15 +21,15 @@ class Module:
 	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True):
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
-		smt2_src, btor_src = verilog_to_smt2_and_btor(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
+		smt2_src, btor_src, verilog_src = verilog_to_smt2_and_btor(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
 		smt2_names = parse_yosys_smt2(smt2_src)
 		btor2_names = parse_yosys_btor(btor_src)
 		module_data = merge_smt2_and_btor(smt2_names, btor2_names)
 		for cat in ['inputs', 'outputs', 'state', 'wires']:
 			module_data[cat] = {name: to_signal(name, *a) for name, a in module_data[cat].items()}
-		return Module(**module_data, smt2_src=smt2_src, btor2_src=btor_src, reset=reset)
+		return Module(**module_data, smt2_src=smt2_src, btor2_src=btor_src, verilog_src=verilog_src, reset=reset)
 
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, reset: Optional[str] = None):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, verilog_src: str, reset: Optional[str] = None):
 		self._name = name
 		self.inputs = inputs
 		self.outputs = outputs
@@ -38,6 +38,7 @@ class Module:
 		self.signals = {**self.wires, **self.state, **self.inputs, **self.outputs}
 		self.smt2_src = smt2_src
 		self.btor2_src = btor2_src
+		self.verilog_src = verilog_src
 		self.reset = reset
 		if self.reset is not None:
 			assert self.reset in self.inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self.inputs.keys())}"

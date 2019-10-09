@@ -37,7 +37,7 @@ def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = Tru
 			btor_src = ff.read()
 		with open(verilog_out) as ff:
 			verilog_src = ff.read()
-	return smt2_src, btor_src
+	return smt2_src, btor_src, verilog_src
 
 def parse_yosys_smt2(smt2_src: str) -> dict:
 	grammar = {
