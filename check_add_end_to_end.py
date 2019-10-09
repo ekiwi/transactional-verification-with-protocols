@@ -50,11 +50,10 @@ class ServTop(Spec):
 
 
 		def semantics(spec_rs1, spec_rs2, spec_rd, regs):
-			# TODO: special treatment for read/write from/to x0
-			a = Select(regs, spec_rs1)
-			b = Select(regs, spec_rs2)
+			a = Ite(Equals(spec_rs1, BV(0, 5)), BV(0,32), Select(regs, spec_rs1))
+			b = Ite(Equals(spec_rs2, BV(0, 5)), BV(0,32), Select(regs, spec_rs2))
 			c = BVAdd(a, b)
-			regs_n = Store(regs, spec_rd, c)
+			regs_n = Ite(Equals(spec_rd, BV(0, 5)), regs, Store(regs, spec_rd, c))
 			return {'regs': regs_n}
 
 		def x0_inv(state):
@@ -88,8 +87,8 @@ def main() -> int:
 
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
-	ee = SMT2ProofEngine(outdir='smt2')
-	#ee = MCProofEngine(outdir="btor2")
+	#ee = SMT2ProofEngine(outdir='smt2')
+	ee = MCProofEngine(outdir="btor2")
 	veri = Verifier(mod, spec, ee)
 	veri.proof_all()
 
