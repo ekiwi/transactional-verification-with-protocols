@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+from functools import reduce
 from pysmt.shortcuts import *
 from transactions import *
 
@@ -15,7 +16,7 @@ class ServTop(Spec):
 		map_regs_to_mem = True
 		def mapping(mod: Module, regs):
 			asserts = []
-			memory = mod['memory']
+			memory = mod['regfile.memory']
 			for ii in range(1, 32):
 				reg = Select(regs, BV(ii, 5))
 				if map_regs_to_mem:
@@ -42,10 +43,10 @@ class ServTop(Spec):
 		first_cycle = Map('i_ibus_rdt', instruction) | Map('i_ibus_ack', Bool(True)) | Map('o_ibus_cyc', Bool(True))
 		middle = Map('i_ibus_ack', Bool(False)) | Map('o_ibus_cyc', Bool(False))
 		last_cycle = Map('i_ibus_ack', Bool(False)) | Map('o_ibus_cyc', Bool(True))
-		always = Map('i_timer_irq', Bool(False))
+		always = Map('i_timer_irq', Bool(False)) | Map('i_dbus_ack', Bool(False))
 
-		protocol = (first_cycle + (middle * 33) + last_cycle) | (always * 35)
-		assert len(protocol) == 35
+		protocol = (first_cycle + (middle * 34) + last_cycle) | (always * 36)
+		assert len(protocol) == 36
 
 
 		def semantics(spec_rs1, spec_rs2, spec_rd, regs):
