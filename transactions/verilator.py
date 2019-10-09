@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import subprocess, re, os, tempfile
+import subprocess, re, os, tempfile, shutil
 
 from .module import Module, ArraySignal
 from .bounded import Model
@@ -54,13 +54,15 @@ def to_verilator_name(top: Module, st) -> str:
 	return "->".join(parts)
 
 def top_hpp(top: Module):
-	set_lines = [f"\telse if(name == \"{name}\") {{ top->{name} = value; }}" for name in top.inputs.keys()]
+	clk = find_clock(top)
+	inputs = [ii for ii in top.inputs.keys() if ii != clk]
+	set_lines = [f"\telse if(name == \"{name}\") {{ top->{name} = value; }}" for name in inputs]
 	registers = [st.name for st in top.state.values() if not isinstance(st, ArraySignal)]
 	state = [(st.name, to_verilator_name(top, st))
 			 for st in top.state.values() if not isinstance(st, ArraySignal)]
 	set_lines += [f"\telse if(name == \"{name}\") {{ assert(step0); top->{prop} = value; }}" for name, prop in state]
 	sett = '\n'.join(set_lines)
-	return _top_hpp_template.format(name=top.name, clock=find_clock(top), sett=sett)
+	return _top_hpp_template.format(name=top.name, clock=clk, sett=sett)
 
 def patch_verlog(src):
 	re_reg = re.compile(r'(\s*reg (\[\d*\:\d*\] )?\w+)(\s*\=[^;]+)?;')
@@ -102,9 +104,40 @@ def compile_sim(top: Module, cwd):
 	subprocess.run(f"make -j -C obj_dir/ -f V{top.name}.mk V{top.name}", stderr=subprocess.PIPE, stdout=subprocess.PIPE, cwd=cwd, check=True, shell=True)
 	return os.path.join(f"obj_dir/V{top.name}")
 
+def make_sim_script(top: Module, m: Model):
+	script = []
 
-def simulate(top: Module, m: Model):
+	# initialize register state
+	registers = [st.name for st in top.state.values() if not isinstance(st, ArraySignal)]
+	script += [f"set {rr} {m.data[0][m.indices[rr]]}" for rr in registers]
+
+	# step through cycles
+	clk = find_clock(top)
+	inputs = [ii for ii in top.inputs.keys() if ii != clk]
+	for cycle in m.data:
+		script += [f"set {ii} {cycle[m.indices[ii]]}" for ii in inputs]
+		script += ["step"]
+
+	return script + ["exit"]
+
+def simulate(top: Module, m: Model, filename: str):
 	cwd = tempfile.mkdtemp()
 	sim = compile_sim(top, cwd=cwd)
+	with open(os.path.join(cwd, 'script'), 'w') as ff:
+		ff.write('\n'.join(make_sim_script(top, m)) + '\n')
+	sim_path = os.path.join(cwd, sim)
+	script_path = os.path.join(cwd, 'script')
+
+	# generate vcd
+	subprocess.run(f"cat script | {sim_path}", cwd=cwd, check=True, shell=True)
+	vcd = os.path.join(cwd, 'dump.vcd')
+	assert os.path.isfile(vcd)
+
+	# move vcd to filename
+	shutil.move(src=vcd, dst=filename)
+
+	# remove tempdir
+	shutil.rmtree(cwd)
+
 
 

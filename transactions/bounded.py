@@ -97,7 +97,8 @@ class BoundedCheck:
 			print(f"{valid}️ {self.name} ({timing})")
 
 		if not success:
-			res.model.to_vcd('test.vcd')
+			res.model.to_vcd('smt2.vcd')
+			res.model.run_in_verilator(self._mod, 'verilator.vcd')
 
 		assert success, f"found counter example to check {self.name}\n{res}"
 		return success
@@ -119,6 +120,10 @@ class Model:
 		self.indices = indices
 		self.data = data
 		self.creation_time = creation_time
+
+	def run_in_verilator(self, mod, filename):
+		from .verilator import simulate
+		simulate(mod, self, filename=filename)
 
 	def to_vcd(self, filename):
 		with open(filename, 'w') as ff:
