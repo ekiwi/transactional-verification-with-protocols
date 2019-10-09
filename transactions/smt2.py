@@ -251,10 +251,10 @@ class Solver:
 		re_read = re.compile(f'\(\(([a-zA-Z_0-9\.]+)\s+' + bv_bool + suffix)
 
 		def parse_value(vv):
-			if vv == 'true': return "1"
-			if vv == 'false': return "0"
+			if vv == 'true': return 1
+			if vv == 'false': return 0
 			assert len(vv) > 2
-			return vv[2:]
+			return int(vv[2:], 2)
 
 		values = {}
 		for line in lines:
