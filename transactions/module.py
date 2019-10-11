@@ -2,7 +2,7 @@ import os
 from typing import List,  Dict, Optional
 from pysmt.shortcuts import *
 
-from .yosys import verilog_to_smt2_and_btor, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor
+from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor
 
 
 def to_signal(name, typ, nid):
@@ -21,13 +21,13 @@ class Module:
 	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True):
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
-		smt2_src, btor_src, verilog_src = verilog_to_smt2_and_btor(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
-		smt2_names = parse_yosys_smt2(smt2_src)
-		btor2_names = parse_yosys_btor(btor_src)
+		src = parse_verilog(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
+		smt2_names = parse_yosys_smt2(src['smt2'])
+		btor2_names = parse_yosys_btor(src['btor'])
 		module_data = merge_smt2_and_btor(smt2_names, btor2_names)
 		for cat in ['inputs', 'outputs', 'state', 'wires']:
 			module_data[cat] = {name: to_signal(name, *a) for name, a in module_data[cat].items()}
-		return Module(**module_data, smt2_src=smt2_src, btor2_src=btor_src, verilog_src=verilog_src, reset=reset)
+		return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], reset=reset)
 
 	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, verilog_src: str, reset: Optional[str] = None):
 		self._name = name

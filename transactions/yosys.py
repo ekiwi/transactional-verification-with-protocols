@@ -17,27 +17,33 @@ def require_yosys() -> str:
 	version = re.match(r'Yosys (\d+\.\d+\+\d+)', r.stdout.decode('utf-8')).group(1)
 	return version
 
-def verilog_to_smt2_and_btor(filenames: List[str], top: str,  arrays: bool = True, ignore_wires: bool = True):
+def parse_verilog(filenames: List[str], top: str,  arrays: bool = True, ignore_wires: bool = True, formats = None):
 	for ff in filenames:
 		assert os.path.isfile(ff), ff
+	available_formats = ['smt2', 'btor', 'v', 'ilang']
+	if formats is None:
+		formats = available_formats
+	else:
+		for ff in formats: assert ff in available_formats, f"Invalid format: {ff}"
 	with tempfile.TemporaryDirectory() as dd:
-		outfile = os.path.join(dd, "module.smt2")
-		btor_out = os.path.join(dd, "module.btor")
-		verilog_out = os.path.join(dd, "module.v")
-		wires = "" if ignore_wires else "-wires"
+		outprefix = os.path.join(dd, top)
 		cmds  = [f"read_verilog -sv -defer {ff}" for ff in filenames]
-		cmds += [f"prep -nordff -top {top}", f"write_verilog {verilog_out}"]
-		cmds += [f"prep -flatten -nordff -top {top}", "setattr -unset keep", f"write_smt2 {wires} {outfile}"]
-		cmds += [f"write_btor -v {btor_out}"]
+		cmds += [f"prep -nordff -top {top}"]
+		if 'v' in formats: cmds += [f"write_verilog {outprefix}.v"]
+		if 'ilang' in formats: cmds += [f"write_ilang {outprefix}.ilang"]
+		if 'smt2' in formats or 'btor' in formats:
+			cmds += [f"prep -flatten -nordff -top {top}", "setattr -unset keep"]
+			if 'smt2' in formats:
+				wires = "" if ignore_wires else "-wires"
+				cmds += [f"write_smt2 {wires} {outprefix}.smt2"]
+			if 'btor' in formats: cmds += [f"write_btor -v {outprefix}.btor"]
 		subprocess.run(['yosys', '-p', '; '.join(cmds)], stdout=subprocess.PIPE, check=True)
 		#'-DRISCV_FORMAL',
-		with open(outfile) as ff:
-			smt2_src = ff.read()
-		with open(btor_out) as ff:
-			btor_src = ff.read()
-		with open(verilog_out) as ff:
-			verilog_src = ff.read()
-	return smt2_src, btor_src, verilog_src
+		src = {}
+		for suffix in formats:
+			with open(outprefix + '.' + suffix) as ff:
+				src[suffix] = ff.read()
+	return src
 
 def parse_yosys_smt2(smt2_src: str) -> dict:
 	grammar = {
