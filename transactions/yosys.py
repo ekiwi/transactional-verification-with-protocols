@@ -157,3 +157,9 @@ def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
 	mod.pop('registers')
 	mod.pop('memories')
 	return mod
+
+
+def parse_ilang(ilang_src: str) -> dict:
+
+
+	return {}
