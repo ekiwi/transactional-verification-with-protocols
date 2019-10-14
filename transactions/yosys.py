@@ -160,6 +160,59 @@ def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
 
 
 def parse_ilang(ilang_src: str) -> dict:
+	modules = {}
+	attributes = {}
+	mod = None
+	cell = None
 
+	for line in ilang_src.split('\n'):
+		p = line.strip().split(' ')
+		# skip comments
+		if p[0] == '#': continue
+		# skip empty lines
+		if len(p) == 1 and p[0].strip() == '': continue
 
-	return {}
+		# parse commands
+		if p[0] == 'attribute':
+			attributes[p[2]] = p[2:]
+		elif p[0] == 'module':
+			assert mod is None
+			mod = {'attributes': attributes, 'name': p[1], 'cells': {}, 'wires': {}, 'parameters': [], 'connects': []}
+		elif p[0] == 'cell':
+			assert cell is None
+			cell = {'attributes': attributes, 'type': p[1], 'name': p[2], 'parameters': [], 'connects': []}
+		elif p[0] == 'end':
+			if cell is not None:
+				mod['cells'][cell['name']] = cell
+				cell = None
+			else:
+				assert mod is not None
+				modules[mod['name']] = mod
+				mod = None
+		elif p[0] == 'wire':
+			assert cell is None
+			if len(p) == 2:
+				wire = {'attributes': attributes, 'name': p[1]}
+			else:
+				wire = {'attributes': attributes, 'direction': p[1], 'bits': int(p[2]), 'name': p[3]}
+			mod['wires'][wire['name']] = wire
+		elif p[0] == 'parameter':
+			param = {'attributes': attributes, 'name': p[1]}
+			if cell is not None: cell['parameters'].append(param)
+			else: mod['parameters'].append(param)
+		elif p[0] == 'connect':
+			con = {'attributes': attributes, 'lhs': p[1], 'rhs': p[1]}
+			if cell is not None: cell['connects'].append(con)
+			else: mod['connects'].append(con)
+		elif p[0] in {'autoidx'}:
+			pass # ignore
+		else:
+			raise RuntimeError(f"Unexpected command `{p[0]}` in {line}")
+		# reset attributes
+		if p[0] != 'attribute':
+			attributes = {}
+
+	assert cell is None
+	assert mod is None
+	assert len(attributes) == 0
+	return modules
