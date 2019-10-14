@@ -192,7 +192,7 @@ def parse_ilang(ilang_src: str) -> dict:
 		elif p[0] == 'wire':
 			assert cell is None
 			if len(p) == 2:
-				wire = {'attributes': attributes, 'name': p[1]}
+				wire = {'attributes': attributes, 'name': p[1], 'direction': 'width', 'bits': 1}
 			else:
 				wire = {'attributes': attributes, 'direction': p[1], 'bits': int(p[2]), 'name': p[3]}
 			mod['wires'][wire['name']] = wire
@@ -216,3 +216,20 @@ def parse_ilang(ilang_src: str) -> dict:
 	assert mod is None
 	assert len(attributes) == 0
 	return modules
+
+def expose_module(modules: dict, top: str, expose: str) -> list:
+	assert '\\' + top in modules, f"could not find top module: {top} in {list(modules.keys())}"
+	assert '\\' + expose in modules, f"could not find expose module: {expose} in {list(modules.keys())}"
+
+	tmod = modules['\\' + top]
+	instances = [c for c in tmod['cells'].values() if c['type'] == '\\' + expose]
+	assert len(instances) > 0, f"could not find any instance of {expose} in {top}"
+
+	# remember port names in order to avoid name clashes
+	port_names = set(w['name'] for w in tmod['wires'].values() if w['direction'] in {'input', 'output'})
+
+	cmds = []
+	for ii in instances:
+		print(ii['name'])
+		con = ii['connects']
+

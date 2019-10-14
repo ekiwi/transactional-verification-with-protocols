@@ -2,7 +2,7 @@ import os
 from typing import List,  Dict, Optional
 from pysmt.shortcuts import *
 
-from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang
+from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_module
 
 
 def to_signal(name, typ, nid):
@@ -22,7 +22,14 @@ class Module:
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
 		src = parse_verilog(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
-		parse_ilang(src['ilang'])
+
+		# DEBUG
+		if name == 'serv_top':
+			ilang_modules = parse_ilang(src['ilang'])
+			cmds = expose_module(ilang_modules, top=name, expose='serv_regfile')
+
+
+
 		smt2_names = parse_yosys_smt2(src['smt2'])
 		btor2_names = parse_yosys_btor(src['btor'])
 		module_data = merge_smt2_and_btor(smt2_names, btor2_names)
