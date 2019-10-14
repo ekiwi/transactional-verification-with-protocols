@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import subprocess, os, re, tempfile
+from itertools import chain
 from collections import defaultdict
 from typing import List
 
@@ -177,7 +178,7 @@ def parse_ilang(ilang_src: str) -> dict:
 			attributes[p[2]] = p[2:]
 		elif p[0] == 'module':
 			assert mod is None
-			mod = {'attributes': attributes, 'name': p[1], 'cells': {}, 'wires': {}, 'parameters': [], 'connects': []}
+			mod = {'attributes': attributes, 'name': p[1], 'cells': {}, 'wires': {}, 'inputs': {}, 'outputs': {}, 'parameters': [], 'connects': []}
 		elif p[0] == 'cell':
 			assert cell is None
 			cell = {'attributes': attributes, 'type': p[1], 'name': p[2], 'parameters': [], 'connects': []}
@@ -191,17 +192,20 @@ def parse_ilang(ilang_src: str) -> dict:
 				mod = None
 		elif p[0] == 'wire':
 			assert cell is None
-			if len(p) == 2:
-				wire = {'attributes': attributes, 'name': p[1], 'direction': 'width', 'bits': 1}
-			else:
-				wire = {'attributes': attributes, 'direction': p[1], 'bits': int(p[2]), 'name': p[3]}
-			mod['wires'][wire['name']] = wire
+			typ = 'wire'
+			name = p[-1]
+			bits = 1
+			for ii in range(1, len(p) - 1):
+				if p[ii] == 'input': typ = 'input'
+				if p[ii] == 'output': typ = 'output'
+				if p[ii] == 'width': bits = int(p[ii + 1])
+			mod[typ + 's'][name] = {'attributes': attributes, 'name': name, 'bits': bits}
 		elif p[0] == 'parameter':
 			param = {'attributes': attributes, 'name': p[1]}
 			if cell is not None: cell['parameters'].append(param)
 			else: mod['parameters'].append(param)
 		elif p[0] == 'connect':
-			con = {'attributes': attributes, 'lhs': p[1], 'rhs': p[1]}
+			con = {'attributes': attributes, 'lhs': p[1], 'rhs': p[2]}
 			if cell is not None: cell['connects'].append(con)
 			else: mod['connects'].append(con)
 		elif p[0] in {'autoidx'}:
@@ -217,19 +221,59 @@ def parse_ilang(ilang_src: str) -> dict:
 	assert len(attributes) == 0
 	return modules
 
-def expose_module(modules: dict, top: str, expose: str) -> list:
+ExposePrefix: str = "__EXP_"
+
+def expose_module(modules: dict, top: str, expose: str):
 	assert '\\' + top in modules, f"could not find top module: {top} in {list(modules.keys())}"
 	assert '\\' + expose in modules, f"could not find expose module: {expose} in {list(modules.keys())}"
+
+	# module declaration of module that needs to be exposed
+	emod = modules['\\' + expose]
 
 	tmod = modules['\\' + top]
 	instances = [c for c in tmod['cells'].values() if c['type'] == '\\' + expose]
 	assert len(instances) > 0, f"could not find any instance of {expose} in {top}"
 
 	# remember port names in order to avoid name clashes
-	port_names = set(w['name'] for w in tmod['wires'].values() if w['direction'] in {'input', 'output'})
+	port_names = set(w['name'] for w in chain(tmod['inputs'].values(), tmod['outputs'].values()))
 
 	cmds = []
+	ios = {}
+
+	def add_port(i_name: str, p_name: str, p_dir: str, p_bits: int):
+		# p_dir is from the view of the module being exposed
+		assert p_dir in {'in', 'out'}
+		mangled_name = ExposePrefix + (i_name + '_' + p_name).replace('\\', '')
+		assert mangled_name not in port_names
+		port_names.add(mangled_name)
+		ios[i_name][p_name] = {'port': mangled_name, 'dir': p_dir, 'bits': p_bits}
+		# invert direction to expose module at toplevel
+		port_dir = "-input" if p_dir == 'out' else "-output"
+		cmds.append(f"add {port_dir} {mangled_name} {p_bits}")
+		return mangled_name
+
 	for ii in instances:
-		print(ii['name'])
+		name = ii['name'][1:]
 		con = ii['connects']
+		ios[name] = {}
+		# add i/o
+		for inp in emod['inputs'].values():
+			toplevel_out = add_port(name, inp['name'][1:], 'in', inp['bits'])
+			instance_in = [cc for cc in con if cc['lhs'] == inp['name']]
+			assert len(instance_in) > 0, f"could not find connection to {inp['name']} for instance {name}: {con}"
+			assert len(instance_in) < 2, f"found multiple: {instance_in}"
+			# connect wire feeding the module to be exposed to the toplevel output
+			cmds.append(f"connect -set {toplevel_out} {instance_in[0]['rhs']}")
+		for out in emod['outputs'].values():
+			toplevel_in = add_port(name, out['name'][1:], 'out', out['bits'])
+			instance_out = [cc for cc in con if cc['lhs'] == out['name']]
+			assert len(instance_out) > 0, f"could not find connection from {out['name']} for instance {name}: {con}"
+			assert len(instance_out) < 2, f"found multiple: {instance_out}"
+			# connect wire (formally) driven by module output to toplevel input
+			cmds.append(f"connect -set {instance_out[0]['rhs']} {toplevel_in}")
+		# delete cell
+		cmds.append(f"delete {name}")
+
+	return cmds, ios
+
 

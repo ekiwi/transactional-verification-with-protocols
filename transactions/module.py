@@ -26,7 +26,7 @@ class Module:
 		# DEBUG
 		if name == 'serv_top':
 			ilang_modules = parse_ilang(src['ilang'])
-			cmds = expose_module(ilang_modules, top=name, expose='serv_regfile')
+			cmds, ios = expose_module(ilang_modules, top=name, expose='serv_regfile')
 
 
 
