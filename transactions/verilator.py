@@ -55,7 +55,8 @@ def to_verilator_name(top: Module, st) -> str:
 
 def top_hpp(top: Module):
 	clk = find_clock(top)
-	inputs = [ii for ii in top.inputs.keys() if ii != clk]
+	# filter out clock input and inputs to blackboxed submodules (which start with __EXP)
+	inputs = [ii for ii in top.inputs.keys() if ii != clk and not ii.startswith('__')]
 	set_lines = [f"\telse if(name == \"{name}\") {{ top->{name} = value; }}" for name in inputs]
 	registers = [st.name for st in top.state.values() if not isinstance(st, ArraySignal)]
 	state = [(st.name, to_verilator_name(top, st))
@@ -113,7 +114,7 @@ def make_sim_script(top: Module, m: Model):
 
 	# step through cycles
 	clk = find_clock(top)
-	inputs = [ii for ii in top.inputs.keys() if ii != clk]
+	inputs = [ii for ii in top.inputs.keys() if ii != clk and not ii.startswith('__')]
 	for cycle in m.data:
 		script += [f"set {ii} {cycle[m.indices[ii]]}" for ii in inputs]
 		script += ["step"]
