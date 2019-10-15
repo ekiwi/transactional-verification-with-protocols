@@ -56,12 +56,13 @@ class ServTop(Spec):
 			regs_n = Ite(Equals(spec_rd, BV(0, 5)), regs, Store(regs, spec_rd, c))
 			return {'regs': regs_n}
 
-		def x0_inv(state):
-			m = state['regfile.memory']
-			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
+		# TODO: remove regfile invariances (they aren't needed for modular verification)
+		# def x0_inv(state):
+		# 	m = state['regfile.memory']
+		# 	return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
 		inv = [
-			lambda state: Iff(state['regfile.o_ready'], Bool(False)),
-			lambda state: Iff(state['regfile.t'],Bool(False)),
+			#lambda state: Iff(state['regfile.o_ready'], Bool(False)),
+			#lambda state: Iff(state['regfile.t'],Bool(False)),
 			lambda state: Equals(state['decode.state'], BV(0, 2)),
 			lambda state: Equals(state['decode.cnt'], BV(0, 5)),
 			lambda state: Iff(state['decode.pending_irq'], Bool(False)),
@@ -69,8 +70,9 @@ class ServTop(Spec):
 			lambda state: Iff(state['decode.o_ctrl_jump'], Bool(False)),
 			lambda state: Equals(state['decode.o_cnt_r'], BV(1, 4)),
 			lambda state: Iff(state['ctrl.en_pc_r'], Bool(True)),
-			lambda state: Equals(state['regfile.wcnt'], BV(0, 5)),
-			x0_inv]
+			#lambda state: Equals(state['regfile.wcnt'], BV(0, 5)),
+			#x0_inv
+		]
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
 
@@ -87,8 +89,8 @@ def main() -> int:
 
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
-	#ee = SMT2ProofEngine(outdir='smt2')
-	ee = MCProofEngine(outdir="btor2")
+	ee = SMT2ProofEngine(outdir='smt2')
+	#ee = MCProofEngine(outdir="btor2")
 	veri = Verifier(mod, spec, ee)
 	veri.proof_all()
 
