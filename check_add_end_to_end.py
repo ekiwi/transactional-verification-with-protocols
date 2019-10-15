@@ -82,7 +82,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	mod = Module.load('serv_top', src, reset='i_rst', ignore_wires=False)
+	mod = Module.load('serv_top', src, reset='i_rst', ignore_wires=False, blackbox=['serv_regfile', 'serv_alu'])
 	spec = ServTop()
 
 	print(f"Trying to proof {mod.name}")

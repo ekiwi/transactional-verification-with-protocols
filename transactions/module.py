@@ -18,26 +18,31 @@ def to_signal(name, typ, nid):
 
 class Module:
 	@staticmethod
-	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True):
+	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True, blackbox: Optional[List[str]] = None):
 		for ff in verilog_files:
 			assert os.path.isfile(ff), ff
-		src = parse_verilog(verilog_files, top=name, arrays=True, ignore_wires=ignore_wires)
 
-		# DEBUG
-		if name == 'serv_top':
-			ilang_modules = parse_ilang(src['ilang'])
-			cmds, ios = expose_module(ilang_modules, top=name, expose='serv_regfile')
+		pre_mc_cmds = []
+		ios = {}
+		if blackbox is not None and len(blackbox) > 0:
+			for bb in blackbox:
+				src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['ilang'], pre_mc_cmds=pre_mc_cmds)
+				ilang_modules = parse_ilang(src['ilang'])
+				cmds, ios_n = expose_module(ilang_modules, top=name, expose=bb)
+				pre_mc_cmds += [f"select {name}"] + cmds + ["select *", "clean"]
+				ios = {**ios, **ios_n}
 
-
-
+		src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['v', 'smt2', 'btor'], pre_mc_cmds=pre_mc_cmds)
 		smt2_names = parse_yosys_smt2(src['smt2'])
 		btor2_names = parse_yosys_btor(src['btor'])
 		module_data = merge_smt2_and_btor(smt2_names, btor2_names)
 		for cat in ['inputs', 'outputs', 'state', 'wires']:
 			module_data[cat] = {name: to_signal(name, *a) for name, a in module_data[cat].items()}
-		return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], reset=reset)
+		return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], blackbox_ios=ios, reset=reset)
 
-	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"], wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, verilog_src: str, reset: Optional[str] = None):
+	def __init__(self, name: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"],
+	wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, verilog_src: str, blackbox_ios: dict,
+	reset: Optional[str] = None):
 		self._name = name
 		self.inputs = inputs
 		self.outputs = outputs

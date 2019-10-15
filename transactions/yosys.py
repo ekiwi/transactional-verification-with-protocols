@@ -18,7 +18,7 @@ def require_yosys() -> str:
 	version = re.match(r'Yosys (\d+\.\d+\+\d+)', r.stdout.decode('utf-8')).group(1)
 	return version
 
-def parse_verilog(filenames: List[str], top: str,  arrays: bool = True, ignore_wires: bool = True, formats = None):
+def parse_verilog(filenames: List[str], top: str,  ignore_wires: bool = True, pre_mc_cmds= None, formats = None):
 	for ff in filenames:
 		assert os.path.isfile(ff), ff
 	available_formats = ['smt2', 'btor', 'v', 'ilang']
@@ -33,7 +33,8 @@ def parse_verilog(filenames: List[str], top: str,  arrays: bool = True, ignore_w
 		if 'v' in formats: cmds += [f"write_verilog {outprefix}.v"]
 		if 'ilang' in formats: cmds += [f"write_ilang {outprefix}.ilang"]
 		if 'smt2' in formats or 'btor' in formats:
-			cmds += [f"prep -flatten -nordff -top {top}", "setattr -unset keep"]
+			if pre_mc_cmds is not None:	cmds += pre_mc_cmds
+			cmds += [f"flatten", "setattr -unset keep"]
 			if 'smt2' in formats:
 				wires = "" if ignore_wires else "-wires"
 				cmds += [f"write_smt2 {wires} {outprefix}.smt2"]
