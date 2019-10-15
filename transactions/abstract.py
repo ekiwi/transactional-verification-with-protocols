@@ -15,6 +15,13 @@ def build_io_abstraction(spec: Spec):
 
 
 
+	# Checking which transaction is selected
+	#       -> this seems to come down to the transaction being verified only calling a specific transaction at a time
+	#       -> e.g. if the ALU has a add and a sub transaction, we shouldn't combine add and sub instruction execution
+	#          in one transaction at the toplevel
+
+
+
 	# 2) NFA -> DFA
 
 
