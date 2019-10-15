@@ -69,6 +69,7 @@ class Spec:
 	def __init__(self, arch_state=None, mapping=None, transactions=None, invariances=None, case_split=None):
 		self.arch_state = default(arch_state, {})
 		self.transactions = default(transactions, [])
+		# TODO: invariances maybe should not be part of the Spec as they are more of an implementation detail
 		self.invariances = default(invariances, [])
 		self.mapping = default(mapping, lambda state: [])
 		self.case_split = default(case_split, list())
