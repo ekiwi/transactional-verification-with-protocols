@@ -3,7 +3,7 @@
 
 from .yosys import require_yosys
 from .module import Module
-from .spec import Spec, Map, BitSerial, Repeat, Transaction
+from .spec import Spec, Map, BitSerial, Repeat, Transaction, Protocol
 from .mc import MCProofEngine
 from .verifier import Verifier
 from .utils import conjunction, cat

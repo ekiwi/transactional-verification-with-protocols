@@ -16,6 +16,7 @@ def merge_dicts(a: dict, b: dict) -> dict:
 class Protocol:
 	def __init__(self, mappings: list):
 		self.mappings = mappings
+		assert len(self) > 0, f"Protocol must describe at least one transition!"
 
 	def __len__(self):
 		return len(self.mappings)
@@ -73,3 +74,6 @@ class Spec:
 		self.invariances = default(invariances, [])
 		self.mapping = default(mapping, lambda state: [])
 		self.case_split = default(case_split, list())
+
+	def get_transaction(self, name):
+		return next(tt for tt in self.transactions if tt.name == name)

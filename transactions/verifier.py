@@ -113,7 +113,7 @@ class Verifier:
 			assert tran.name in transaction_traces, f"Missing transaction trace for {tran.name}: {list(transaction_traces.keys())}"
 			trace = transaction_traces[tran.name]
 			# check that for each balckboxed submodule we have a trace of the correct length
-			for bb in self.mod.submodules:
+			for bb in self.mod.submodules.values():
 				assert bb.name in trace, f"Missing transaction trace for {tran.name} for submodule {bb.name}"
 				trace_len = sum(len(tt.proto) for tt in trace[bb.name])
 				assert trace_len == len(tran.proto), f"Transaction trace for {tran.name} for submodule {bb.name} is {trace_len} cycles long, needs to be {len(tran.proto)}"
