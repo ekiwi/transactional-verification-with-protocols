@@ -102,9 +102,24 @@ class Verifier:
 				for ii in invariances:
 					check.assert_at(cycles, ii)
 
-	def proof_all(self, transaction_trace = None):
-		if transaction_trace is None:
-			transaction_trace = {}
+	def check_transaction_traces(self, transaction_traces):
+		# if there are no (blackboxed) submodules, there is no need for transaction traces
+		if len(self.mod.submodules) == 0:
+			return {}
+		assert isinstance(transaction_traces, dict), f"Invalid instruction traces provided: {transaction_traces}"
 
+		# check that for each transaction we have a set of traces
+		for tran in self.spec.transactions:
+			assert tran.name in transaction_traces, f"Missing transaction trace for {tran.name}: {list(transaction_traces.keys())}"
+			trace = transaction_traces[tran.name]
+			# check that for each balckboxed submodule we have a trace of the correct length
+			for bb in self.mod.submodules:
+				assert bb.name in trace, f"Missing transaction trace for {tran.name} for submodule {bb.name}"
+				trace_len = sum(len(tt.proto) for tt in trace[bb.name])
+				assert trace_len == len(tran.proto), f"Transaction trace for {tran.name} for submodule {bb.name} is {trace_len} cycles long, needs to be {len(tran.proto)}"
+		return transaction_traces
+
+	def proof_all(self, transaction_traces = None):
+		transaction_traces = self.check_transaction_traces(transaction_traces)
 		self.proof_invariances()
 		self.proof_transactions()
