@@ -52,7 +52,7 @@ class BoundedCheck:
 
 	def assume_at(self, cycle, expr):
 		assert self._active
-		assert self.cycles >= cycle >= 0
+		assert self.cycles >= cycle >= 0, f"{self.cycles} >= {cycle} >= 0"
 		self.steps[cycle].assumptions.append(expr)
 
 	def assume_always(self, expr):
