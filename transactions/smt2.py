@@ -189,6 +189,10 @@ class Solver:
 		return stdout == unsat
 
 	def solve(self, vc, filename=None):
+		# if there is no vc, the check always passes
+		if len(vc) == 0:
+			return True, 0.0, -1
+
 		filename = default(filename, tempfile.mkstemp()[1])
 
 		sat_time = []
