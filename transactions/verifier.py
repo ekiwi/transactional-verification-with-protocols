@@ -15,7 +15,7 @@ class Verifier:
 		self.engine = engine
 		self.verbose = True
 
-	def do_transaction(self, tran: Transaction, check: BoundedCheck, assume_invariances=False, no_asserts=False):
+	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces, assume_invariances=False, no_asserts=False):
 		assert check.cycles == len(tran.proto), f"need to fully unroll transaction! {check.cycles} vs {len(tran.proto)}"
 
 		# assume invariances hold at the beginning of the transaction
@@ -44,11 +44,34 @@ class Verifier:
 					assert self.mod.is_input(signal_name)
 					check.assume_at(ii, equal(self.mod[signal_name], expr))
 
-	def proof_transaction(self, tran: Transaction):
+		# apply cycle behavior of submodules
+		for name, mod in self.mod.submodules.items():
+			trace = transaction_traces[tran.name][name]
+			cycles = [0] + list(itertools.accumulate(len(tt.proto) for tt in trace))
+			for start_cycle, subtran in zip(cycles, trace):
+				self.model_submodule_transaction(subtran, check, mod, start_cycle)
+
+
+
+	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: Module, start_cycle: int):
+		# TODO: instanciate semantics + args
+
+		for ii, m in enumerate(tran.proto.mappings):
+			for signal_name, expr in m.items():
+				if submodule.is_output(signal_name):
+					# we need to apply the output of the blackboxed submodule to the input of the module we are verifying
+					check.assume_at(ii + start_cycle, equal(submodule[signal_name], expr))
+				else:
+					assert submodule.is_input(signal_name)
+					# we just connect the inputs because we assume that they are correct
+					check.assume_at(ii + start_cycle, equal(submodule[signal_name], expr))
+		return start_cycle + len(tran.proto)
+
+	def proof_transaction(self, tran: Transaction, transaction_traces):
 		cycles = len(tran.proto)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
-			self.do_transaction(tran=tran, assume_invariances=True, check=check)
+			self.do_transaction(tran=tran, transaction_traces=transaction_traces, assume_invariances=True, check=check)
 
 			# declare architectural states and bind them to the initialization of the circuit state
 			arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items()}
@@ -76,11 +99,11 @@ class Verifier:
 			for a in mapping_assertions:
 				check.assert_at(cycles, a)
 
-	def proof_transactions(self):
+	def proof_transactions(self, transaction_traces):
 		for trans in self.spec.transactions:
-			self.proof_transaction(trans)
+			self.proof_transaction(trans, transaction_traces)
 
-	def proof_invariances(self):
+	def proof_invariances(self, transaction_traces):
 		invariances = [ii(self.mod) for ii in self.spec.invariances]
 
 		for ii in invariances:
@@ -94,7 +117,7 @@ class Verifier:
 		for tran in self.spec.transactions:
 			cycles = len(tran.proto)
 			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
-				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
+				self.do_transaction(tran=tran, check=check, transaction_traces=transaction_traces, assume_invariances=False, no_asserts=True)
 				# assume this particular invariance
 				for ii in invariances:
 					check.assume_at(0, ii)
@@ -121,5 +144,5 @@ class Verifier:
 
 	def proof_all(self, transaction_traces = None):
 		transaction_traces = self.check_transaction_traces(transaction_traces)
-		self.proof_invariances()
-		self.proof_transactions()
+		self.proof_invariances(transaction_traces)
+		self.proof_transactions(transaction_traces)

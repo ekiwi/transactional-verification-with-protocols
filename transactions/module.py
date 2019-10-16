@@ -64,6 +64,8 @@ class Module:
 		self.btor2_src = btor2_src
 		self.verilog_src = verilog_src
 		self.submodules = submodules if submodules is not None else {}
+		for name, submod in self.submodules.items():
+			self.signals = {**self.signals, **{f'{name}.{n}': s for n,s in submod.signals.items()}}
 		self.reset = reset
 		if self.reset is not None:
 			assert self.reset in self.inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self.inputs.keys())}"
