@@ -4,6 +4,7 @@
 # SMT2 Lib based backend for BoundedCheck
 
 import subprocess, tempfile, os, itertools, re
+from cache_to_disk import cache_to_disk
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
@@ -168,45 +169,30 @@ class Solver:
 	def fun(self, function):
 		self.funs.append(function)
 
-	def _write_scrip(self, filename, funs, assertions, cmds: list):
-		with open(filename, 'w') as ff:
-			print("(set-logic QF_AUFBV)", file=ff)
-			print("; smt script generated using yosys + a custom python script", file=ff)
-			print(file=ff)
-			print("; yosys generated:", file=ff)
-			print(self.header, file=ff)
-			print("; custom cmds", file=ff)
-			for f in funs:
-				SmtLibCommand(smtcmd.DECLARE_FUN, [f]).serialize(outstream=ff, daggify=False)
-				print("", file=ff)
-			for a in assertions:
-				if isinstance(a, str):
-					print(f"; {a}", file=ff)
-				else:
-					SmtLibCommand(smtcmd.ASSERT, [a]).serialize(outstream=ff, daggify=False)
-					print("", file=ff)
-			for cmd in cmds:
-				cmd.serialize(outstream=ff)
-				print("", file=ff)
-
 	def _check_sat(self, filename, funs, assertions, get_cmds=[]):
-		cmds = [SmtLibCommand(smtcmd.CHECK_SAT, [])] + get_cmds
-		self._write_scrip(filename=filename, funs=funs, assertions=assertions, cmds=cmds)
-		r = subprocess.run([self.bin, filename], stdout=subprocess.PIPE, check=True)
-		stdout = r.stdout.decode('utf-8').strip()
+		stdout, delta = _check_sat(solver=self.bin, header=self.header, filename=filename, funs=funs, assertions=assertions, get_cmds=get_cmds)
 		assert 'error' not in stdout, f"SMT solver call failed: {stdout}"
-		return stdout
+		return stdout, delta
 
 	def _check_vc(self, vc, filename):
 		vc_validity = Not(conjunction(*vc))
 		return self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename)
 
+	def _check_vc_is_sat(self, vc, filename, sat_time):
+		stdout, delta = self._check_vc(vc=vc, filename=filename)
+		sat_time.append(delta)
+		return stdout == sat
+
+	def _check_vc_is_unsat(self, vc, filename, sat_time):
+		stdout, delta = self._check_vc(vc=vc, filename=filename)
+		sat_time.append(delta)
+		return stdout == unsat
+
 	def solve(self, vc, filename=None):
 		filename = default(filename, tempfile.mkstemp()[1])
 
-		start = time.time()
-		success = self._check_vc(vc, filename=filename) == unsat
-
+		sat_time = []
+		success = self._check_vc_is_unsat(vc, filename=filename, sat_time=sat_time)
 
 		bad_prop = -1
 		if not success:
@@ -217,32 +203,30 @@ class Solver:
 				assert fail > good
 				ii = good + (fail - good) // 2
 				ff = os.path.splitext(filename)[0] + f"_b{ii}.smt2"
-				ii_fail = self._check_vc(vc[:ii+1], filename=ff) == sat
+				ii_fail = self._check_vc_is_sat(vc[:ii+1], filename=ff, sat_time=sat_time)
 				if ii_fail: fail = ii
 				else:       good = ii
 			bad_prop = fail
 
-		delta = time.time() - start
-		return success, delta, bad_prop
+		return success, sum(sat_time), bad_prop
 
 	def get_model(self, vc: list, cycle: int, reads: list, filename):
 		""" call this after a failing solver call  and only hand it the vc you are interested in """
-		start = time.time()
-
 		# get values
 		get_cmds = [SmtLibCommand(smtcmd.GET_VALUE, [vv]) for vv in reads]
 
 		# run SMT solver
 		vc_validity = Not(conjunction(*vc))
-		out = self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
+		out, sat_time = self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
 		lines = out.split('\n')
 		assert lines[0] == 'sat', f"model generation is only supported for satisfiable queries. Expected `sat` got `{lines[0]}`"
 
 		# parse model
+		start = time.time()
 		values = self._parse_model(lines[1:])
 		for rr in reads: assert rr.symbol_name() in values, f"{rr} is missing from the values returned by the solver"
 		delta = time.time() - start
-		return values, delta
+		return values, delta + sat_time
 
 
 	def _parse_model(self, lines):
@@ -265,3 +249,35 @@ class Solver:
 			values[name] = parse_value(value)
 
 		return values
+
+
+def _write_scrip(header, filename, funs, assertions, cmds: list):
+	with open(filename, 'w') as ff:
+		print("(set-logic QF_AUFBV)", file=ff)
+		print("; smt script generated using yosys + a custom python script", file=ff)
+		print(file=ff)
+		print("; yosys generated:", file=ff)
+		print(header, file=ff)
+		print("; custom cmds", file=ff)
+		for f in funs:
+			SmtLibCommand(smtcmd.DECLARE_FUN, [f]).serialize(outstream=ff, daggify=False)
+			print("", file=ff)
+		for a in assertions:
+			if isinstance(a, str):
+				print(f"; {a}", file=ff)
+			else:
+				SmtLibCommand(smtcmd.ASSERT, [a]).serialize(outstream=ff, daggify=False)
+				print("", file=ff)
+		for cmd in cmds:
+			cmd.serialize(outstream=ff)
+			print("", file=ff)
+
+@cache_to_disk(1)
+def _check_sat(solver, header, filename, funs, assertions, get_cmds=[]):
+	start = time.time()
+	cmds = [SmtLibCommand(smtcmd.CHECK_SAT, [])] + get_cmds
+	_write_scrip(header=header, filename=filename, funs=funs, assertions=assertions, cmds=cmds)
+	r = subprocess.run([solver, filename], stdout=subprocess.PIPE, check=True)
+	stdout = r.stdout.decode('utf-8').strip()
+	delta = time.time() - start
+	return stdout, delta
