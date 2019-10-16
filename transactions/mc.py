@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import subprocess, os, tempfile, time
+from cache_to_disk import cache_to_disk
 from typing import Optional
 from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
 from pysmt.walkers import DagWalker
@@ -102,7 +103,7 @@ class BtorMC:
 		self.assertions = []
 		# load symbols form parser
 		for name, data in rr['symbols'].items():
-			typ, ii = data
+			typ, ii, _ = data
 			if typ[0] == 'bv' and typ[1] == 1: typ = BOOL
 			elif typ[0] == 'bv': typ = BVType(typ[1])
 			elif typ[0] == 'array':
@@ -204,21 +205,15 @@ class BtorMC:
 		return [f"; {ll}" if check(ll) else ll for ll in header]
 
 	def check(self, k, do_init=False, filename=None):
-		start = time.time()
-		filename = default(filename, tempfile.mkstemp()[1])
 		#print(filename)
 		# remove outputs
 		header = self.exclude(self.header.split('\n'), 'output')
 		# remove init
 		if not do_init:
 			header = self.exclude(header, 'init')
-		with open(filename, 'w') as ff:
-			print('\n'.join(header + self.lines), file=ff)
-		# a kmin that is too big seems to lead to btormc ignoring bad properties.. #'-kmin', str(k)
-		r = subprocess.run([self.bin, filename, '-kmax', str(k)], stdout=subprocess.PIPE, check=True)
-		msg = r.stdout.decode('utf-8').split('\n')
-		success = 'sat' not in msg[0]
-		delta = time.time() - start
+
+		success, delta = _check(solver=self.bin, k=k, filename=filename, header = header, lines=self.lines)
+
 		if not success:
 			props = msg[1].strip().split(' ')
 			assert len(props) == 1, f"wrong number of bas properties! {props}"
@@ -227,6 +222,19 @@ class BtorMC:
 		else:
 			bad_prop = -1
 		return success, delta, bad_prop
+
+@cache_to_disk(1)
+def _check(solver, k, filename, header, lines):
+	start = time.time()
+	filename = default(filename, tempfile.mkstemp()[1])
+	with open(filename, 'w') as ff:
+		print('\n'.join(header + lines), file=ff)
+	# a kmin that is too big seems to lead to btormc ignoring bad properties.. #'-kmin', str(k)
+	r = subprocess.run([solver, filename, '-kmax', str(k)], stdout=subprocess.PIPE, check=True)
+	msg = r.stdout.decode('utf-8').split('\n')
+	success = 'sat' not in msg[0]
+	delta = time.time() - start
+	return success, delta
 
 def smt_to_btor_sort(declare_line, typ):
 	if typ.is_bool_type(): return declare_line(f"sort bitvec 1")
