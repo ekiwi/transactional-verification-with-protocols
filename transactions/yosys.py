@@ -65,8 +65,8 @@ def parse_yosys_smt2(smt2_src: str) -> dict:
 	assert len(res['modules']) == 1, "Currently this software only works for single modules!"
 	module = {'name': res['modules'][0][0]}
 	for key in ['inputs', 'outputs', 'registers', 'wires']:
-		module[key] = { ii[0]: (('bv', int(ii[1])), -1)  for ii in res[key]}
-	module['memories'] = { ii[0]: (('array', ('bv', int(ii[1])), ('bv', int(ii[2]))), -1) for ii in res['memories']}
+		module[key] = { ii[0]: (('bv', int(ii[1])), -1, ii[0])  for ii in res[key]}
+	module['memories'] = { ii[0]: (('array', ('bv', int(ii[1])), ('bv', int(ii[2]))), -1, ii[0]) for ii in res['memories']}
 	return module
 
 def parse_yosys_btor(btor_src: str) -> dict:
@@ -120,19 +120,19 @@ def parse_yosys_btor(btor_src: str) -> dict:
 
 					if len(parts) > 2 + len(form):
 						name = parts[2+len(form)]
-						res['wires'][name] = (entry[0], ii)
+						res['wires'][name] = (entry[0], ii, name)
 
 					# for outputs, get type
 					if name == 'output':
 						name = entry[1]
 						src = nodes[entry[0]]
-						res['outputs'][name] = (src[1], entry[0])
+						res['outputs'][name] = (src[1], entry[0], name)
 					elif name in {'state', 'output', 'input'}:
 						key = "register" if entry[0][0] == 'bv' else "memorie"
 						key = key if name == 'state' else name
 						# filter out unnamed signals
 						if len(entry) > 1:
-							res[key + "s"][entry[1]] = (entry[0], ii)
+							res[key + "s"][entry[1]] = (entry[0], ii, entry[1])
 					unknown = False
 					break
 			assert not unknown, f"command {cmd} is unknown"
@@ -143,6 +143,7 @@ def parse_yosys_btor(btor_src: str) -> dict:
 
 def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
 	mod = {'name': smt2_names['name']}
+	mod['type'] = mod['name']
 	for cat in ['inputs', 'outputs', 'registers', 'memories', 'wires']:
 		mod[cat] = {}
 		for name, args in smt2_names[cat].items():
@@ -158,6 +159,9 @@ def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
 	mod['state'] = { **mod['registers'], **mod['memories'] }
 	mod.pop('registers')
 	mod.pop('memories')
+	# filter out sumodule i/o
+	mod['inputs']  = { nn: ii for nn, ii in mod['inputs'].items()  if not ii[-1].startswith(ExposePrefix) }
+	mod['outputs'] = { nn: ii for nn, ii in mod['outputs'].items() if not ii[-1].startswith(ExposePrefix) }
 	return mod
 
 
@@ -239,15 +243,15 @@ def expose_module(modules: dict, top: str, expose: str):
 	port_names = set(w['name'] for w in chain(tmod['inputs'].values(), tmod['outputs'].values()))
 
 	cmds = []
-	ios = {}
+	submods = []
 
-	def add_port(i_name: str, p_name: str, p_dir: str, p_bits: int):
+	def add_port(p_mod, p_name: str, p_dir: str, p_bits: int):
 		# p_dir is from the view of the module being exposed
-		assert p_dir in {'in', 'out'}
-		mangled_name = ExposePrefix + (i_name + '_' + p_name).replace('\\', '')
+		assert p_dir in {'input', 'output'}
+		mangled_name = ExposePrefix + (p_mod['name'] + '_' + p_name).replace('\\', '')
 		assert mangled_name not in port_names
 		port_names.add(mangled_name)
-		ios[i_name][p_name] = {'port': mangled_name, 'dir': p_dir, 'bits': p_bits}
+		p_mod[p_dir + 's'][p_name] = (('bv', p_bits), -1, mangled_name)
 		# invert direction to expose module at toplevel
 		port_dir = "-input" if p_dir == 'out' else "-output"
 		cmds.append(f"add {port_dir} {mangled_name} {p_bits}")
@@ -256,17 +260,18 @@ def expose_module(modules: dict, top: str, expose: str):
 	for ii in instances:
 		name = ii['name'][1:]
 		con = ii['connects']
-		ios[name] = {}
+		mod = {'name': name, 'type': expose, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {}}
+
 		# add i/o
 		for inp in emod['inputs'].values():
-			toplevel_out = add_port(name, inp['name'][1:], 'in', inp['bits'])
+			toplevel_out = add_port(mod, inp['name'][1:], 'input', inp['bits'])
 			instance_in = [cc for cc in con if cc['lhs'] == inp['name']]
 			assert len(instance_in) > 0, f"could not find connection to {inp['name']} for instance {name}: {con}"
 			assert len(instance_in) < 2, f"found multiple: {instance_in}"
 			# connect wire feeding the module to be exposed to the toplevel output
 			cmds.append(f"connect -set {toplevel_out} {instance_in[0]['rhs']}")
 		for out in emod['outputs'].values():
-			toplevel_in = add_port(name, out['name'][1:], 'out', out['bits'])
+			toplevel_in = add_port(mod, out['name'][1:], 'output', out['bits'])
 			instance_out = [cc for cc in con if cc['lhs'] == out['name']]
 			assert len(instance_out) > 0, f"could not find connection from {out['name']} for instance {name}: {con}"
 			assert len(instance_out) < 2, f"found multiple: {instance_out}"
@@ -275,6 +280,8 @@ def expose_module(modules: dict, top: str, expose: str):
 		# delete cell
 		cmds.append(f"delete {name}")
 
-	return cmds, ios
+		submods.append(mod)
+
+	return cmds, submods
 
 

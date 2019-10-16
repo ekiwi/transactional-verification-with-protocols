@@ -102,6 +102,9 @@ class Verifier:
 				for ii in invariances:
 					check.assert_at(cycles, ii)
 
-	def proof_all(self):
+	def proof_all(self, transaction_trace = None):
+		if transaction_trace is None:
+			transaction_trace = {}
+
 		self.proof_invariances()
 		self.proof_transactions()
