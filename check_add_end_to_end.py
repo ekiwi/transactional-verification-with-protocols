@@ -3,8 +3,11 @@
 
 import os
 from functools import reduce
+from collections import defaultdict
 from pysmt.shortcuts import *
 from transactions import *
+from check_regfile import RegfileSpec
+from check_alu import AluSpec
 
 # experiment to see what happens if we give it a single instruction
 
@@ -80,19 +83,38 @@ class ServTop(Spec):
 
 src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg', 'serv_bufreg', 'serv_csr', 'serv_ctrl', 'serv_decode', 'serv_regfile', 'serv_mem_if', 'serv_top']]
 
+def blackbox(spec: ServTop, disable: bool):
+	if disable: return [], None
+
+	blackbox = []
+	transaction_traces = defaultdict(dict)
+
+	def register(typ, instance, trace, spec):
+		blackbox.append(typ)
+		transaction_traces['e2e_add'][instance] = [spec.get_transaction(name) for name in trace]
+
+	# for now magically assume that we know the correct transaction traces
+	register(typ='serv_regfile', instance='regfile', trace=['rw', 'idle'], spec=RegfileSpec())
+	register(typ='serv_alu', instance='alu', trace=['idle', 'idle', 'idle', 'Add<32>'], spec=AluSpec())
+
+	return blackbox, transaction_traces
+
+
 def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	mod = Module.load('serv_top', src, reset='i_rst', ignore_wires=False, blackbox=['serv_regfile', 'serv_alu'])
 	spec = ServTop()
+	blackboxes, transaction_traces = blackbox(spec, disable=False)
+	mod = Module.load('serv_top', src, reset='i_rst', ignore_wires=False, blackbox=blackboxes)
+
 
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
 	ee = SMT2ProofEngine(outdir='smt2')
 	#ee = MCProofEngine(outdir="btor2")
 	veri = Verifier(mod, spec, ee)
-	veri.proof_all()
+	veri.proof_all(transaction_traces=transaction_traces)
 
 	return 0
 

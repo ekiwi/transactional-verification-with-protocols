@@ -22,7 +22,7 @@ def flatten(ll: List[list]) -> list:
 class AluSpec(Spec):
 	def __init__(self, bits=32):
 		self.bits = bits
-		transactions = [self.Add(), self.Sub(), self.Bitwise(), self.LeftShiftBy(1)]
+		transactions = [self.Idle(), self.Add(), self.Sub(), self.Bitwise(), self.LeftShiftBy(1)]
 		inv = [lambda state: Bool(True)]
 		super().__init__(transactions=flatten(transactions), invariances=inv)
 
@@ -43,6 +43,9 @@ class AluSpec(Spec):
 		semantics = lambda a, b: {'c': BVOperation(a, b)}
 		protocol = self.BaseProtocol(a, b, c, ctrl=ctrl)
 		return Transaction(name=f"{name}<{self.bits}>", args=[a, b], ret_args=[c], semantics=semantics, proto=protocol)
+
+	def Idle(self) -> List[Transaction]:
+		return [Transaction(name="idle", args=[], ret_args=[], semantics=lambda : None, proto=Protocol([{}]))]
 
 	def Add(self) -> List[Transaction]:
 		ctrl = Map('i_sub', Bool(False)) | Map('i_rd_sel', ALU_RESULT_ADD)
