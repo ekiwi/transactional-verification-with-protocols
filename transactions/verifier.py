@@ -46,25 +46,55 @@ class Verifier:
 
 		# apply cycle behavior of submodules
 		for name, mod in self.mod.submodules.items():
-			trace = transaction_traces[tran.name][name]
+			trace = transaction_traces[tran.name][name]['trace']
+			subspec = transaction_traces[tran.name][name]['spec']
 			cycles = [0] + list(itertools.accumulate(len(tt.proto) for tt in trace))
-			for start_cycle, subtran in zip(cycles, trace):
-				self.model_submodule_transaction(subtran, check, mod, start_cycle)
+			def make_state(pre, post=""): return { n: Symbol(pre + n + post, tpe) for n, tpe in subspec.arch_state.items() }
+			arch_state_begin = make_state(f"__{name}_")
+			arch_state_end = make_state(f"__{name}_", "_n")
+			# start with start state + declare it as unconstrained symbolic input
+			current_state = arch_state_begin
+			for sym in current_state.values(): check.constant(sym)
+			for ii, (start_cycle, subtran) in enumerate(zip(cycles, trace)):
+				is_last = ii == len(trace) - 1
+				prefix = f"__{name}_{ii}_{subtran.name}_"
+				next_state = make_state(prefix) if not is_last else arch_state_end
+				self.model_submodule_transaction(subtran, check, mod, start_cycle, prefix, current_state, next_state)
+				current_state = next_state
+			assert current_state == arch_state_end
 
 
 
-	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: Module, start_cycle: int):
-		# TODO: instanciate semantics + args
+	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: Module, start_cycle: int, prefix: str, arch_in, arch_out):
+		# declare arguments for this particular transaction
+		args = { sym.symbol_name(): Symbol(prefix + sym.symbol_name(), sym.symbol_type()) for sym in tran.args }
+		for sym in args.values(): check.constant(sym)
+
+		# calculate semanitcs of this transaction
+		sem_out = tran.semantics(**args, **arch_in)
+
+		# declare return arguments as functions
+		ret_args = { sym.symbol_name(): Symbol(prefix + sym.symbol_name(), sym.symbol_type()) for sym in tran.ret_args }
+		for name, sym in ret_args.items():
+			check.function(sym, sem_out[name])
+
+		# declare next arch state as functions
+		for name, sym in arch_out.items():
+			check.function(sym, sem_out[name])
+
+		# we need to rename references to the transaction arguments in the protocol mapping
+		mappings = { sym: Symbol(prefix + sym.symbol_name(), sym.symbol_type()) for sym in itertools.chain(tran.args, tran.ret_args) }
 
 		for ii, m in enumerate(tran.proto.mappings):
 			for signal_name, expr in m.items():
+				renamed_expr = substitute(expr, mappings)
 				if submodule.is_output(signal_name):
 					# we need to apply the output of the blackboxed submodule to the input of the module we are verifying
-					check.assume_at(ii + start_cycle, equal(submodule[signal_name], expr))
+					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
 				else:
 					assert submodule.is_input(signal_name)
 					# we just connect the inputs because we assume that they are correct
-					check.assume_at(ii + start_cycle, equal(submodule[signal_name], expr))
+					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
 		return start_cycle + len(tran.proto)
 
 	def proof_transaction(self, tran: Transaction, transaction_traces):
@@ -125,7 +155,7 @@ class Verifier:
 				for ii in invariances:
 					check.assert_at(cycles, ii)
 
-	def check_transaction_traces(self, transaction_traces):
+	def check_transaction_trace_format(self, transaction_traces):
 		# if there are no (blackboxed) submodules, there is no need for transaction traces
 		if len(self.mod.submodules) == 0:
 			return {}
@@ -134,15 +164,18 @@ class Verifier:
 		# check that for each transaction we have a set of traces
 		for tran in self.spec.transactions:
 			assert tran.name in transaction_traces, f"Missing transaction trace for {tran.name}: {list(transaction_traces.keys())}"
-			trace = transaction_traces[tran.name]
+			traces = transaction_traces[tran.name]
 			# check that for each balckboxed submodule we have a trace of the correct length
 			for bb in self.mod.submodules.values():
-				assert bb.name in trace, f"Missing transaction trace for {tran.name} for submodule {bb.name}"
-				trace_len = sum(len(tt.proto) for tt in trace[bb.name])
+				assert bb.name in traces, f"Missing transaction trace for {tran.name} for submodule {bb.name}"
+				trace = traces[bb.name]['trace']
+				trace_len = sum(len(tt.proto) for tt in trace)
 				assert trace_len == len(tran.proto), f"Transaction trace for {tran.name} for submodule {bb.name} is {trace_len} cycles long, needs to be {len(tran.proto)}"
+				spec = traces[bb.name]['spec']
+				assert isinstance(spec, Spec), f"No valid spec provided!"
 		return transaction_traces
 
 	def proof_all(self, transaction_traces = None):
-		transaction_traces = self.check_transaction_traces(transaction_traces)
+		transaction_traces = self.check_transaction_trace_format(transaction_traces)
 		self.proof_invariances(transaction_traces)
 		self.proof_transactions(transaction_traces)

@@ -91,7 +91,7 @@ def blackbox(spec: ServTop, disable: bool):
 
 	def register(typ, instance, trace, spec):
 		blackbox.append(typ)
-		transaction_traces['e2e_add'][instance] = [spec.get_transaction(name) for name in trace]
+		transaction_traces['e2e_add'][instance] = {'spec': spec, 'trace': [spec.get_transaction(name) for name in trace]}
 
 	# for now magically assume that we know the correct transaction traces
 	register(typ='serv_regfile', instance='regfile', trace=['rw', 'idle'], spec=RegfileSpec())
