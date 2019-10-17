@@ -57,9 +57,7 @@ class SMT2ProofEngine:
 		assertions  = [step.assertions for step in check.steps]
 
 		# map module i/o and state to cycle dependent function
-		for n, x in mod.signals.items():
-			assert x.name == n, f"{x} vs {n}"
-		symbols = [Symbol(s.name, s.tpe) for s in mod.signals.values()]
+		symbols = [s.symbol for s in mod.signals.values()]
 		# TODO: compute mappings lazily as not all of them will be used
 		def map_sym(symbol: Symbol, state):
 			ft = FunctionType(symbol.symbol_type(), [state_t])
