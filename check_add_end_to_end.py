@@ -12,25 +12,30 @@ from check_alu import AluSpec
 # experiment to see what happens if we give it a single instruction
 
 class ServTop(Spec):
-	def __init__(self):
+	def __init__(self, blackboxed=False):
 
 		########## Architectural State: register file
 		regs = ArrayType(BVType(5), BVType(32))  # ArraySignal('x', 5, 32)
-		map_regs_to_mem = True
-		def mapping(mod: Module, regs):
-			asserts = []
-			memory = mod['regfile.memory']
-			for ii in range(1, 32):
-				reg = Select(regs, BV(ii, 5))
-				if map_regs_to_mem:
-					iis = [Select(memory, BV(ii * 16 + jj, 9)) for jj in reversed(range(16))]
-					asserts.append(Equals(reg, reduce(BVConcat, iis)))
-				else:
-					for jj in range(16):
-						a = Select(memory, BV(ii * 16 + jj, 9))
-						b = BVExtract(reg, start=jj * 2, end=jj * 2 + 1)
-						asserts.append(Equals(a, b))
-			return asserts
+		if blackboxed:
+			def mapping(mod: Module, regs):
+				# TODO: how do we refer to architectural state of submodules?
+				return Equals(regs, mod.submodules['regfile'])
+		else:
+			map_regs_to_mem = True
+			def mapping(mod: Module, regs):
+				asserts = []
+				memory = mod['regfile.memory']
+				for ii in range(1, 32):
+					reg = Select(regs, BV(ii, 5))
+					if map_regs_to_mem:
+						iis = [Select(memory, BV(ii * 16 + jj, 9)) for jj in reversed(range(16))]
+						asserts.append(Equals(reg, reduce(BVConcat, iis)))
+					else:
+						for jj in range(16):
+							a = Select(memory, BV(ii * 16 + jj, 9))
+							b = BVExtract(reg, start=jj * 2, end=jj * 2 + 1)
+							asserts.append(Equals(a, b))
+				return asserts
 
 		#### Add Instruction
 		funct7 = BV(0, 7)
