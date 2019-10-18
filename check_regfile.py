@@ -64,7 +64,7 @@ class RegfileSpec(Spec):
 		case_split = [And(rd_enable, Equals(rd_addr, BV(ii, 5))) for ii in range(32)] + [Not(rd_enable)]
 
 		idle = Transaction(name="idle", args=[], ret_args=[], semantics=lambda regs:{'regs': regs}, proto=
-		Map('i_go', Bool(False)) | Map('i_rd_en', Bool(False)))
+		Map('i_go', Bool(False)) | Map('i_rd_en', Bool(False)) | Map('o_ready', Bool(False)))
 
 		transactions = [idle, Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
