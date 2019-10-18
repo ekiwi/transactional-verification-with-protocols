@@ -9,7 +9,7 @@ from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
 from .utils import *
-from .bounded import BoundedCheck, CheckFailure, CheckSuccess, Model
+from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model
 from .module import Module
 
 class SMT2ProofEngine:
@@ -18,7 +18,7 @@ class SMT2ProofEngine:
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
-	def check(self, check: BoundedCheck, mod: Module):
+	def check(self, check: BoundedCheckData, mod: Module):
 		start = time.time()
 		solver = Solver(header=mod.smt2_src)
 

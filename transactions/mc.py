@@ -10,7 +10,7 @@ from pysmt.walkers import DagWalker
 from .module import Module
 from .yosys import parse_yosys_btor
 from .utils import equal, default
-from .bounded import BoundedCheck, CheckSuccess, CheckFailure
+from .bounded import BoundedCheckData, CheckSuccess, CheckFailure
 
 class MCProofEngine:
 	def __init__(self, outdir=None):
@@ -19,7 +19,7 @@ class MCProofEngine:
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
-	def check(self, check: BoundedCheck, mod: Module):
+	def check(self, check: BoundedCheckData, mod: Module):
 		start = time.time()
 		solver = BtorMC(header=mod.btor2_src)
 
