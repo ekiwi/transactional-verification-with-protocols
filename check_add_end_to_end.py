@@ -15,12 +15,13 @@ class ServTop(Spec):
 	def __init__(self, blackboxed=False):
 
 		########## Architectural State: register file
-		regs = ArrayType(BVType(5), BVType(32))  # ArraySignal('x', 5, 32)
+
 		if blackboxed:
-			def mapping(mod: Module, regs):
-				# TODO: how do we refer to architectural state of submodules?
-				return Equals(regs, mod.submodules['regfile'])
+			arch_state = {'regs': 'regfile.regs'}
+			mapping = lambda mod: []
 		else:
+			regs = ArrayType(BVType(5), BVType(32))  # ArraySignal('x', 5, 32)
+			arch_state = {'regs': regs}
 			map_regs_to_mem = True
 			def mapping(mod: Module, regs):
 				asserts = []
@@ -84,7 +85,7 @@ class ServTop(Spec):
 
 		transactions = [Transaction(name=f"e2e_add", args=[rs1, rs2, rd], ret_args=[], semantics=semantics, proto=protocol)]
 
-		super().__init__(transactions=transactions, arch_state={'regs': regs}, mapping=mapping, invariances=inv)
+		super().__init__(transactions=transactions, arch_state=arch_state, mapping=mapping, invariances=inv)
 
 src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg', 'serv_bufreg', 'serv_csr', 'serv_ctrl', 'serv_decode', 'serv_regfile', 'serv_mem_if', 'serv_top']]
 
@@ -109,7 +110,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	spec = ServTop()
+	spec = ServTop(blackboxed=True)
 	blackboxes, transaction_traces = blackbox(spec, disable=False)
 	mod = Module.load('serv_top', src, reset='i_rst', ignore_wires=False, blackbox=blackboxes)
 

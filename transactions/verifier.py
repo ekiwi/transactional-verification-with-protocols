@@ -45,6 +45,7 @@ class Verifier:
 					check.assume_at(ii, equal(self.mod[signal_name], expr))
 
 		# apply cycle behavior of submodules
+		sub_arch_state, sub_arch_state_n = {}, {}
 		for name, mod in self.mod.submodules.items():
 			trace = transaction_traces[tran.name][name]['trace']
 			subspec = transaction_traces[tran.name][name]['spec']
@@ -62,7 +63,10 @@ class Verifier:
 				self.model_submodule_transaction(subtran, check, mod, start_cycle, prefix, current_state, next_state)
 				current_state = next_state
 			assert current_state == arch_state_end
+			sub_arch_state[name] = arch_state_begin
+			sub_arch_state_n[name] = arch_state_end
 
+		return  sub_arch_state, sub_arch_state_n
 
 
 	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: Module, start_cycle: int, prefix: str, arch_in, arch_out):
@@ -101,14 +105,22 @@ class Verifier:
 		cycles = len(tran.proto)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
-			self.do_transaction(tran=tran, transaction_traces=transaction_traces, assume_invariances=True, check=check)
+			sub_arch_state_index, sub_arch_state_n_index = self.do_transaction(
+				tran=tran, transaction_traces=transaction_traces, assume_invariances=True, check=check)
 
-			# declare architectural states and bind them to the initialization of the circuit state
-			arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items()}
-			arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items()}
+			# native arch state tied to a physical state in the module
+			arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items() if not isinstance(tpe, str)}
+			arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items() if not isinstance(tpe, str)}
 			# TODO: we could assign an initial value to the arch state that is derived from the initial circuit state
 			for sym in arch_state.values():
 				check.constant(sym)
+			# submodule arch state
+			def astate(tpe, index):
+				instance, st = tpe.split(".")
+				return index[instance][st]
+			sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in self.spec.arch_state.items() if isinstance(tpe, str)}
+			sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.spec.arch_state.items() if isinstance(tpe, str)}
+
 			# connect initial circuit and arch state
 			mapping_assumptions = self.spec.mapping(self.mod, **arch_state)
 			for a in mapping_assumptions:
@@ -119,7 +131,7 @@ class Verifier:
 				return {sym.symbol_name(): sym for sym in symbols}
 			args = rename(tran.args)
 			# arg constants were already declared during unrolling
-			sem_out = tran.semantics(**args, **arch_state)
+			sem_out = tran.semantics(**args, **arch_state, **sub_arch_state)
 			ret_args = rename(tran.ret_args)
 			for name, sym in itertools.chain(ret_args.items(), arch_state_n.items()):
 				check.function(sym, sem_out[name])
@@ -128,6 +140,9 @@ class Verifier:
 			mapping_assertions = self.spec.mapping(self.mod, **arch_state_n)
 			for a in mapping_assertions:
 				check.assert_at(cycles, a)
+			# verify submodule arch state equivalence
+			for name, sym in sub_arch_state_n.items():
+				check.assert_at(cycles, equal(sem_out[name], sym))
 
 	def proof_transactions(self, transaction_traces):
 		for trans in self.spec.transactions:
