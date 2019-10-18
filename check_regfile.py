@@ -39,6 +39,7 @@ class RegfileSpec(Spec):
 		ret = [rs1_data, rs2_data]
 
 		protocol = (
+			(Map('o_ready', Bool(False)) * 2 + Map('o_ready', Bool(True)) + Map('o_ready', Bool(False)) * 32) |
 			(Map('i_go', Bool(True)) + Map('i_go', Bool(False)) * 34) |
 			(Repeat('i_rs1_addr', rs1_addr, 32) >> 1) |
 			(Repeat('i_rs2_addr', rs2_addr, 32) >> 1) |
@@ -71,7 +72,11 @@ class RegfileSpec(Spec):
 		def x0_inv(state):
 			m = state['memory']
 			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
-		inv = [lambda state: Equals(state['wcnt'], BV(0, 5)), x0_inv]
+		inv = [
+			lambda state: Iff(state['o_ready'], Bool(False)),
+			lambda state: Iff(state['t'], Bool(False)),
+			lambda state: Equals(state['wcnt'], BV(0, 5)),
+			x0_inv]
 		super().__init__(arch_state={'regs': regs}, mapping=mapping, transactions=transactions, invariances=inv, case_split=case_split)
 
 
