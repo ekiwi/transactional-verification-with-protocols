@@ -212,7 +212,7 @@ class BtorMC:
 		if not do_init:
 			header = self.exclude(header, 'init')
 
-		success, delta = _check(solver=self.bin, k=k, filename=filename, header = header, lines=self.lines)
+		success, delta, msg = _check(solver=self.bin, k=k, filename=filename, header = header, lines=self.lines)
 
 		if not success:
 			props = msg[1].strip().split(' ')
@@ -234,7 +234,7 @@ def _check(solver, k, filename, header, lines):
 	msg = r.stdout.decode('utf-8').split('\n')
 	success = 'sat' not in msg[0]
 	delta = time.time() - start
-	return success, delta
+	return success, delta, msg
 
 def smt_to_btor_sort(declare_line, typ):
 	if typ.is_bool_type(): return declare_line(f"sort bitvec 1")
