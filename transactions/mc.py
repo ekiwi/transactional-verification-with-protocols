@@ -11,10 +11,11 @@ from pysmt.walkers import DagWalker
 from .module import Module
 from .yosys import parse_yosys_btor
 from .utils import equal, default
-from .bounded import BoundedCheckData, CheckSuccess, CheckFailure
+from .bounded import BoundedCheckData, CheckSuccess, CheckFailure, Model
 
 class MCProofEngine:
 	def __init__(self, outdir=None):
+		self.name = "btor2"
 		self.verbose = True
 		self.outdir = outdir
 		if self.outdir is not None:
@@ -66,25 +67,30 @@ class MCProofEngine:
 				assert_to_expr.append(aa)
 
 		# watch outputs + state in order to get their values in case of a witness
-		for name, sig in mod.signals.items():
-			solver.watch(f"__watch_{name}", sig.symbol)
+		watched_signals = { f"__watch_{sig.name}": sig.symbol for sig in mod.signals.values() if not sig.tpe.is_array_type() }
+		for name, expr in watched_signals.items(): solver.watch(name, expr)
 
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.btor2")
 		else:                       filename = None
-		valid, solver_time, assert_ii, model = solver.check(check.cycles, do_init=check.initialize, filename=filename)
+		valid, solver_time, model = solver.check(check.cycles, do_init=check.initialize, filename=filename)
 
 		total_time = time.time() - start
 
 		if valid:
 			return CheckSuccess(solver_time, total_time)
 		else:
-			# assert_ii includes the unrolling condition -> subtract one
-			cycle = assert_to_cycle[assert_ii-1]
-			assert_expr = assert_to_expr[assert_ii-1]
-			# TODO: turn model into correct format!
-			assert model is not None
-			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, model)
+			assert_ii = model['badprop'] - 1
+			cycle = assert_to_cycle[assert_ii]
+			assert_expr = assert_to_expr[assert_ii]
+
+			# turn model into correct format
+			signals = list(watched_signals.values())
+			indices = {sym.symbol_name(): ii for ii, sym in enumerate(signals)}
+			# this relies on stable dictionaries
+			data = [[model['steps'][ii][name]['data'] for name, sym in watched_signals.items()] for ii in range(cycle+1)]
+			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0)
+			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m)
 
 class BtorMC:
 	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):
@@ -256,11 +262,9 @@ class BtorMC:
 
 		if not success:
 			model = self._parse_model(msg)
-			bad_prop = model['badprop']
 		else:
-			bad_prop = -1
 			model = None
-		return success, delta, bad_prop, model
+		return success, delta, model
 
 @cache_to_disk(1)
 def _check(solver, k, filename, header, lines):

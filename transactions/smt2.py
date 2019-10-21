@@ -14,6 +14,7 @@ from .module import Module
 
 class SMT2ProofEngine:
 	def __init__(self, outdir=None):
+		self.name = 'smt2'
 		self.outdir = outdir
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)

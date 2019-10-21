@@ -106,7 +106,7 @@ class BoundedCheck:
 			print(f"{valid}️ {self.name} ({timing})")
 
 		if isinstance(res, CheckFailure):
-			res.model.to_vcd('smt2.vcd')
+			res.model.to_vcd(f'{self._engine.name}.vcd')
 			res.model.run_in_verilator(self._mod, 'verilator.vcd')
 
 		assert success, f"failed check {self.name}\n{res}"
