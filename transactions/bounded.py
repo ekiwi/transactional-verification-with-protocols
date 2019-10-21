@@ -15,6 +15,8 @@ class CheckResult:
 	total_time: float
 	def __str__(self): return f"{self.total_time:.3f} sec, {self.solver_time:.3f} sec to solve"
 	def __repr__(self): return str(self)
+	@property
+	def is_fail(self): raise RuntimeError()
 
 @dataclass
 class CheckFailure(CheckResult):
@@ -24,11 +26,22 @@ class CheckFailure(CheckResult):
 	model : Optional["Model"]
 	def __str__(self):
 		return f"Fail! b{self.assert_ii} `{self.assert_expr}` @ cycle {self.cycle}. After: {super().__str__()}."
+	@property
+	def is_fail(self): return True
+
+@dataclass
+class AssumptionFailure(CheckResult):
+	def __str__(self):
+		return f"Fail! Some assumptions are contradictory!"
+	@property
+	def is_fail(self): return True
 
 @dataclass
 class CheckSuccess(CheckResult):
 	def __str__(self):
 		return f"Success! After: {super().__str__()}."
+	@property
+	def is_fail(self): return False
 
 class BoundedCheck:
 	def __init__(self, name: str, verifier: "Verifier", cycles: int):
@@ -86,17 +99,17 @@ class BoundedCheck:
 		if exc_type is not None: return
 		res = self._engine.check(self.data, mod=self._mod)
 		assert isinstance(res, CheckResult), f"Unexpected result type: {type(res)}"
-		success = isinstance(res, CheckSuccess)
+		success = not res.is_fail
 		if self.verbose:
 			timing = f"{res.total_time:.3f} sec, {res.solver_time:.3f} sec to solve"
 			valid = "✔" if success else "❌"
 			print(f"{valid}️ {self.name} ({timing})")
 
-		if not success:
+		if isinstance(res, CheckFailure):
 			res.model.to_vcd('smt2.vcd')
 			res.model.run_in_verilator(self._mod, 'verilator.vcd')
 
-		assert success, f"found counter example to check {self.name}\n{res}"
+		assert success, f"failed check {self.name}\n{res}"
 		return success
 
 @dataclass

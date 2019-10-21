@@ -9,7 +9,7 @@ from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
 from .utils import *
-from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model
+from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model, AssumptionFailure
 from .module import Module
 
 class SMT2ProofEngine:
@@ -18,7 +18,7 @@ class SMT2ProofEngine:
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
-	def check(self, check: BoundedCheckData, mod: Module):
+	def check(self, check: BoundedCheckData, mod: Module, verify_assumptions=True):
 		start = time.time()
 		solver = Solver(header=mod.smt2_src)
 
@@ -93,13 +93,15 @@ class SMT2ProofEngine:
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
 		else:                                  filename = None
-		valid, solver_time, assert_ii = solver.solve(filename=filename, vc=assertion_symbols)
+		valid, solver_time, assert_ii = solver.solve(filename=filename, vc=assertion_symbols, verify_assumptions=verify_assumptions)
 
 		total_time = time.time() - start
 
 		if valid:
 			return CheckSuccess(solver_time, total_time)
 		else:
+			if verify_assumptions and assert_ii == -2:
+				return AssumptionFailure(solver_time, total_time)
 			cycle = assert_to_cycle[assert_ii]
 			assert_expr = assert_to_expr[assert_ii]
 			model = self._generate_model(mod.name, assertion_symbols, assert_ii, cycle, filename, mappings, solver)
@@ -188,12 +190,25 @@ class Solver:
 		sat_time.append(delta)
 		return stdout == unsat
 
-	def solve(self, vc, filename=None):
+	def _verify_assumptions(self, filename, sat_time):
+		ff = os.path.splitext(filename)[0] + "_verify_assumptions.smt2"
+		stdout, delta = self._check_sat(funs=self.funs, assertions=self.assertions, filename=filename)
+		sat_time.append(delta)
+		# if there is no satisfying assignment, then the assumptions are contradictory
+		return stdout == sat
+
+	def solve(self, vc, filename=None, verify_assumptions=False):
 		# if there is no vc, the check always passes
 		if len(vc) == 0:
 			return True, 0.0, -1
 
 		filename = default(filename, tempfile.mkstemp()[1])
+
+		if verify_assumptions:
+			sat_time = []
+			success = self._verify_assumptions(filename=filename, sat_time=sat_time)
+			if not success:
+				return success, sum(sat_time), -2
 
 		sat_time = []
 		success = self._check_vc_is_unsat(vc, filename=filename, sat_time=sat_time)
