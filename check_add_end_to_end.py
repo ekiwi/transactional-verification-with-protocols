@@ -101,7 +101,7 @@ def blackbox(spec: ServTop, disable: bool):
 
 	# for now magically assume that we know the correct transaction traces
 	register(typ='serv_regfile', instance='regfile', trace=['rw', 'idle'], spec=RegfileSpec())
-	register(typ='serv_alu', instance='alu', trace=['idle', 'idle', 'idle', 'Add<32>'], spec=AluSpec())
+	register(typ='serv_alu', instance='alu', trace=['idle', 'idle', 'Add<32>', 'idle'], spec=AluSpec())
 
 	return blackbox, transaction_traces
 
