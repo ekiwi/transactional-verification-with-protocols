@@ -67,7 +67,8 @@ class MCProofEngine:
 				assert_to_expr.append(aa)
 
 		# watch outputs + state in order to get their values in case of a witness
-		watched_signals = { f"__watch_{sig.name}": sig.symbol for sig in mod.signals.values() if not sig.tpe.is_array_type() }
+		watched_signals = { f"__watch_{sig.symbol.symbol_name()}": sig.symbol
+							for sig in mod.signals.values() if not sig.tpe.is_array_type() }
 		for name, expr in watched_signals.items(): solver.watch(name, expr)
 
 		# run solver
