@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import subprocess, os, tempfile, time
+import subprocess, os, tempfile, time, re
+from collections import defaultdict
 from cache_to_disk import cache_to_disk
 from typing import Optional
 from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
@@ -41,6 +42,7 @@ class MCProofEngine:
 		for sym, expr in check.functions:
 			solver.comment(f"Function: {sym} = {expr}")
 			solver.state(sym, next=sym, init=expr)
+			solver.watch(f"__watch_{sym.symbol_name()}", expr)
 
 		# add invariant assumptions
 		for aa in check.assumptions:
@@ -63,10 +65,14 @@ class MCProofEngine:
 				assert_to_cycle.append(ii)
 				assert_to_expr.append(aa)
 
+		# watch outputs + state in order to get their values in case of a witness
+		for name, sig in mod.signals.items():
+			solver.watch(f"__watch_{name}", sig.symbol)
+
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.btor2")
 		else:                       filename = None
-		valid, solver_time, assert_ii = solver.check(check.cycles, do_init=check.initialize, filename=filename)
+		valid, solver_time, assert_ii, model = solver.check(check.cycles, do_init=check.initialize, filename=filename)
 
 		total_time = time.time() - start
 
@@ -76,7 +82,9 @@ class MCProofEngine:
 			# assert_ii includes the unrolling condition -> subtract one
 			cycle = assert_to_cycle[assert_ii-1]
 			assert_expr = assert_to_expr[assert_ii-1]
-			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr)
+			# TODO: turn model into correct format!
+			assert model is not None
+			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, model)
 
 class BtorMC:
 	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):
@@ -204,8 +212,40 @@ class BtorMC:
 			return len(parts) > 1 and ll.strip().split(' ')[1] == command
 		return [f"; {ll}" if check(ll) else ll for ll in header]
 
+	def _parse_model(self, msg):
+		""" Finds the first model and parses it """
+		assert msg[0].strip() == 'sat', f"Unexpected msg header: {msg[0]}"
+		props = msg[1].strip().split(' ')
+		assert len(props) == 1, f"wrong number of bad properties! {props}"
+		assert props[0].startswith('b'), f"invalid bad property: {props[0]}"
+		bad_prop = int(props[0][1:])
+
+		init = {}
+		steps = defaultdict(dict)
+		for line in msg[2:]:
+			if line.startswith('b'):
+				break
+			if len(line) == 0 or line[0] in {'#', '@', '.'}:
+				continue
+			parts = line.split(' ')
+			assert len(parts) in {3, 4}, f"Unexpected number of space sparated parts: {parts}"
+			if len(parts) == 3:
+				entry = { 'data': int(parts[1], 2) }
+			else:
+				assert parts[1].startswith('[') and parts[1].endswith(']'), f"unexpected address format: {parts[1]} in {parts}"
+				entry = { 'addr': int(parts[1][1:-1], 2), 'data': int(parts[2], 2) }
+			if '#' in parts[-1]:
+				name, suffix = parts[-1].split('#')
+				assert int(suffix) == 0
+				init[name] = entry
+			else:
+				assert '@' in parts[-1], f"{parts}"
+				name, cycle = parts[-1].split('@')
+				steps[int(cycle)][name] = entry
+
+		return {'badprop': bad_prop, 'init': init, 'steps': steps}
+
 	def check(self, k, do_init=False, filename=None):
-		#print(filename)
 		# remove outputs
 		header = self.exclude(self.header.split('\n'), 'output')
 		# remove init
@@ -215,13 +255,12 @@ class BtorMC:
 		success, delta, msg = _check(solver=self.bin, k=k, filename=filename, header = header, lines=self.lines)
 
 		if not success:
-			props = msg[1].strip().split(' ')
-			assert len(props) == 1, f"wrong number of bas properties! {props}"
-			assert props[0].startswith('b'), f"invalid bad property: {props[0]}"
-			bad_prop = int(props[0][1:])
+			model = self._parse_model(msg)
+			bad_prop = model['badprop']
 		else:
 			bad_prop = -1
-		return success, delta, bad_prop
+			model = None
+		return success, delta, bad_prop, model
 
 @cache_to_disk(1)
 def _check(solver, k, filename, header, lines):
