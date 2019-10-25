@@ -94,7 +94,7 @@ class MCProofEngine:
 			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m)
 
 class BtorMC:
-	def __init__(self, header, bin='/home/kevin/d/boolector/build/bin/btormc'):
+	def __init__(self, header, bin='btormc'):
 		self.header = header
 		self.bin = bin
 		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
