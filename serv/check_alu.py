@@ -111,7 +111,7 @@ class AluSpec(Spec):
 
 
 
-src = [os.path.join('serv', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg']]
+src = [os.path.join('fork', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg']]
 
 def main() -> int:
 	version = require_yosys()
@@ -123,8 +123,8 @@ def main() -> int:
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
 
-	ee = SMT2ProofEngine(outdir='smt2')
-	#ee = MCProofEngine(outdir="btor2")
+	ee = SMT2ProofEngine(outdir='../smt2')
+	#ee = MCProofEngine(outdir="../btor2")
 	veri = Verifier(mod, spec, ee)
 	veri.proof_all()
 

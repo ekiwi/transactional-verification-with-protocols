@@ -80,7 +80,7 @@ class RegfileSpec(Spec):
 		super().__init__(arch_state={'regs': regs}, mapping=mapping, transactions=transactions, invariances=inv, case_split=case_split)
 
 
-regfile_v = os.path.join('serv', 'rtl', 'serv_regfile.v')
+regfile_v = os.path.join('fork', 'rtl', 'serv_regfile.v')
 
 def main() -> int:
 	version = require_yosys()
@@ -93,8 +93,8 @@ def main() -> int:
 	print(f"Trying to proof {mod.name}")
 	print(mod)
 
-	#ee = SMT2ProofEngine(outdir='smt2')
-	ee = MCProofEngine(outdir="btor2")
+	#ee = SMT2ProofEngine(outdir='../smt2')
+	ee = MCProofEngine(outdir="../btor2")
 	veri = Verifier(mod, spec, ee)
 	veri.proof_all()
 
