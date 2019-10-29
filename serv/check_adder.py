@@ -30,7 +30,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	mod = Module.load('ser_add', [add_v], reset='rst')
+	mod = Module.load('ser_add', [add_v], reset=HighActiveReset('rst'))
 	spec = AdderSpec(32)
 
 	print(f"Trying to proof {mod.name}")

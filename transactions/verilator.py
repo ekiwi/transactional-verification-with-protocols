@@ -37,7 +37,7 @@ static void set(const std::string& name, const std::string& num_str) {{
 
 def find_clock(top: Module):
 	inputs = set(top.inputs.keys())
-	candidates =  ["clock", "clk"]
+	candidates =  ["clock", "clk", "Clk", "Clock"]
 	for name in candidates:
 		if name in inputs:
 			return name

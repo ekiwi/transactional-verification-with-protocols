@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+from dataclasses import dataclass, field
+from typing import Callable
 from typing import Optional
 from itertools import zip_longest
 from pysmt.shortcuts import *
@@ -58,13 +59,13 @@ def Repeat(signal: str, sym, cycles) -> Protocol:
 def Map(signal:str, sym) -> Protocol:
 	return Protocol([{signal: sym}])
 
+@dataclass
 class Transaction:
-	def __init__(self, name: str, args: list, ret_args: list, proto: Protocol, semantics):
-		self.name = name
-		self.args = args
-		self.ret_args = ret_args
-		self.proto = proto
-		self.semantics = semantics
+	name : str
+	proto : Protocol
+	semantics : Callable
+	args: list = field(default_factory=list)
+	ret_args: list = field(default_factory=list)
 
 class Spec:
 	def __init__(self, arch_state=None, mapping=None, transactions=None, invariances=None, case_split=None):

@@ -112,7 +112,7 @@ def main() -> int:
 
 	spec = ServTop(blackboxed=True)
 	blackboxes, transaction_traces = blackbox(spec, disable=False)
-	mod = Module.load('serv_top', src, reset='i_rst', ignore_wires=False, blackbox=blackboxes)
+	mod = Module.load('serv_top', src, reset=HighActiveReset('i_rst'), ignore_wires=False, blackbox=blackboxes)
 
 
 	print(f"Trying to proof {mod.name}")

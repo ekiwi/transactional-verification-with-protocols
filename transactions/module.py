@@ -1,9 +1,19 @@
 import os
+from dataclasses import dataclass
 from typing import List,  Dict, Optional
 from pysmt.shortcuts import *
 
 from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_module
 
+@dataclass
+class Reset:
+	name: str
+@dataclass
+class HighActiveReset(Reset):
+	pass
+@dataclass
+class LowActiveReset(Reset):
+	pass
 
 def to_signal(name, typ, nid, sym_name):
 	if typ[0] == 'bv' and typ[1] == 1:
@@ -21,7 +31,7 @@ def dict_to_module(module_data: dict, src: Optional[dict], reset: Optional[str],
 	if src is None: src = {'smt2': '', 'btor': '', 'v': ''}
 	return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], submodules=submodules, reset=reset)
 
-def load_module(name: str, verilog_files: List[str], reset:Optional[str], ignore_wires: bool, blackbox: Optional[List[str]]):
+def load_module(name: str, verilog_files: List[str], reset:Optional[Reset], ignore_wires: bool, blackbox: Optional[List[str]]):
 	for ff in verilog_files:
 		assert os.path.isfile(ff), ff
 
@@ -47,12 +57,12 @@ def load_module(name: str, verilog_files: List[str], reset:Optional[str], ignore
 
 class Module:
 	@staticmethod
-	def load(name: str, verilog_files: List[str], reset:Optional[str] = None, ignore_wires: bool = True, blackbox: Optional[List[str]] = None):
+	def load(name: str, verilog_files: List[str], reset:Optional[Reset] = None, ignore_wires: bool = True, blackbox: Optional[List[str]] = None):
 		return load_module(name=name, verilog_files=verilog_files, reset=reset, ignore_wires=ignore_wires, blackbox=blackbox)
 
 	def __init__(self, name: str, type: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"],
 	wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, verilog_src: str, submodules: Optional[Dict[str, "Module"]],
-	reset: Optional[str] = None):
+	reset: Optional[Reset] = None):
 		self._name = name
 		self._type = type
 		self.inputs = inputs
@@ -68,7 +78,7 @@ class Module:
 			self.signals = {**self.signals, **{f'{name}.{n}': s for n,s in submod.signals.items()}}
 		self.reset = reset
 		if self.reset is not None:
-			assert self.reset in self.inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self.inputs.keys())}"
+			assert self.reset.name in self.inputs, f"Reset signal `{self.reset}` not found in module inputs: {list(self.inputs.keys())}"
 
 	@property
 	def name(self): return self._name

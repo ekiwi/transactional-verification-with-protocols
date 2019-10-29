@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from .yosys import require_yosys
-from .module import Module
+from .module import Module, HighActiveReset, LowActiveReset
 from .spec import Spec, Map, BitSerial, Repeat, Transaction, Protocol
 from .mc import MCProofEngine
 from .verifier import Verifier

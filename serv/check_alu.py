@@ -117,7 +117,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	mod = Module.load('serv_alu', src, reset='i_rst', ignore_wires=False)
+	mod = Module.load('serv_alu', src, reset=HighActiveReset('i_rst'), ignore_wires=False)
 	spec = AluSpec()
 
 	print(f"Trying to proof {mod.name}")

@@ -3,7 +3,7 @@
 
 import itertools
 from pysmt.shortcuts import *
-from .module import Module
+from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
 from .spec import Transaction, Spec
 from .bounded import BoundedCheck
@@ -15,6 +15,14 @@ class Verifier:
 		self.engine = engine
 		self.verbose = True
 
+	def reset_active(self):
+		if self.mod.reset is not None:
+			if isinstance(self.mod.reset, HighActiveReset):
+				return self.mod[self.mod.reset.name]
+			else:
+				assert isinstance(self.mod.reset, LowActiveReset)
+				return Not(self.mod[self.mod.reset.name])
+
 	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces, assume_invariances=False, no_asserts=False):
 		assert check.cycles == len(tran.proto), f"need to fully unroll transaction! {check.cycles} vs {len(tran.proto)}"
 
@@ -24,8 +32,7 @@ class Verifier:
 				check.assume_at(0, inv(self.mod))
 
 		# assume reset is inactive during the transaction
-		if self.mod.reset is not None:
-			check.assume_always(Not(self.mod[self.mod.reset]))
+		check.assume_always(Not(self.reset_active()))
 
 		# declare transaction args
 		for arg in tran.args:
@@ -155,7 +162,7 @@ class Verifier:
 			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
 				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
 				check.initialize_state()
-				check.assume_at(0, self.mod[self.mod.reset])
+				check.assume_at(0, self.reset_active())
 				# invariance should hold after reset
 				check.assert_at(1, ii)
 
