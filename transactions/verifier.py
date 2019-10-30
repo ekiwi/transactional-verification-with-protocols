@@ -5,15 +5,22 @@ import itertools
 from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
-from .spec import Transaction, Spec
+from .spec import *
 from .bounded import BoundedCheck
 
+def transaction_len(tran: Transaction):
+	return len(tran.proto.transitions)
+
 class Verifier:
-	def __init__(self, mod: Module, spec: Spec, engine):
+	def __init__(self, mod: Module, prob: VerificationProblem, engine):
+		self.prob = prob
 		self.mod = mod
-		self.spec = spec
 		self.engine = engine
 		self.verbose = True
+		# check mod against prob
+		assert prob.implementation == mod.name, f"{prob.implementation} != {mod.name}"
+		for submod, _ in prob.submodules:
+			assert submod in mod.submodules, f"missing submodule {submod} in {mod}"
 
 	def reset_active(self):
 		if self.mod.reset is not None:
@@ -24,7 +31,7 @@ class Verifier:
 				return Not(self.mod[self.mod.reset.name])
 
 	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces, assume_invariances=False, no_asserts=False):
-		assert check.cycles == len(tran.proto), f"need to fully unroll transaction! {check.cycles} vs {len(tran.proto)}"
+		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
 
 		# assume invariances hold at the beginning of the transaction
 		if assume_invariances:
@@ -155,9 +162,7 @@ class Verifier:
 		for trans in self.spec.transactions:
 			self.proof_transaction(trans, transaction_traces)
 
-	def proof_invariances(self, transaction_traces):
-		invariances = [ii(self.mod) for ii in self.spec.invariances]
-
+	def proof_invariances(self, transaction_traces, invariances: List[SmtFormula], transactions: List[Transaction]):
 		for ii in invariances:
 			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
 				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
@@ -166,8 +171,8 @@ class Verifier:
 				# invariance should hold after reset
 				check.assert_at(1, ii)
 
-		for tran in self.spec.transactions:
-			cycles = len(tran.proto)
+		for tran in transactions:
+			cycles = transaction_len(tran)
 			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
 				self.do_transaction(tran=tran, check=check, transaction_traces=transaction_traces, assume_invariances=False, no_asserts=True)
 				# assume this particular invariance
@@ -177,14 +182,14 @@ class Verifier:
 				for ii in invariances:
 					check.assert_at(cycles, ii)
 
-	def check_transaction_trace_format(self, transaction_traces):
+	def check_transaction_trace_format(self, spec: Spec, transaction_traces):
 		# if there are no (blackboxed) submodules, there is no need for transaction traces
 		if len(self.mod.submodules) == 0:
 			return {}
 		assert isinstance(transaction_traces, dict), f"Invalid instruction traces provided: {transaction_traces}"
 
 		# check that for each transaction we have a set of traces
-		for tran in self.spec.transactions:
+		for tran in spec.transactions:
 			assert tran.name in transaction_traces, f"Missing transaction trace for {tran.name}: {list(transaction_traces.keys())}"
 			traces = transaction_traces[tran.name]
 			# check that for each balckboxed submodule we have a trace of the correct length
@@ -192,12 +197,13 @@ class Verifier:
 				assert bb.name in traces, f"Missing transaction trace for {tran.name} for submodule {bb.name}"
 				trace = traces[bb.name]['trace']
 				trace_len = sum(len(tt.proto) for tt in trace)
-				assert trace_len == len(tran.proto), f"Transaction trace for {tran.name} for submodule {bb.name} is {trace_len} cycles long, needs to be {len(tran.proto)}"
+				assert trace_len == transaction_len(tran), f"Transaction trace for {tran.name} for submodule {bb.name} is {trace_len} cycles long, needs to be {transaction_len(tran)}"
 				spec = traces[bb.name]['spec']
 				assert isinstance(spec, Spec), f"No valid spec provided!"
 		return transaction_traces
 
 	def proof_all(self, transaction_traces = None):
-		transaction_traces = self.check_transaction_trace_format(transaction_traces)
+		assert transaction_traces is None
+		#transaction_traces = self.check_transaction_trace_format(self.veri.spec, transaction_traces)
 		self.proof_invariances(transaction_traces)
 		self.proof_transactions(transaction_traces)
