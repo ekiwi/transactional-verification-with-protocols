@@ -68,13 +68,17 @@ class Transaction:
 
 @dataclass
 class Spec:
-	state : List[Tuple[str, SmtSort]]
-	transactions : List[Transaction]
+	state : List[Tuple[str, SmtSort]] = field(default_factory=list)
+	transactions : List[Transaction] = field(default_factory=list)
 
 @dataclass
-class SpecVerification:
-	# TODO: how should we call the check when we verify the Spec instead of using it?
+class VerificationProblem:
+	# the spec to be verified
 	spec: Spec
+	# name of the module to be verified
+	implementation: str
+	# submodules that will be replaced by their specs
+	submodules: List[Tuple[str, Spec]]
 	# invariances are formulas over implementation state that hold at the beginning
 	# and the end of each transaction as well as after reset
 	invariances : List[SmtFormula] = field(default_factory=list)
