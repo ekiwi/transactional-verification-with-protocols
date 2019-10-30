@@ -1,80 +1,82 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
-from typing import Callable
-from typing import Optional
-from itertools import zip_longest
-from pysmt.shortcuts import *
-from .utils import *
+from typing import Optional, Callable, List, Tuple
+@dataclass
+class SmtSort:
+	pass
+@dataclass
+class BitVecSort:
+	width: int
+@dataclass
+class ArraySort:
+	index: BitVecSort
+	data: BitVecSort
+@dataclass
+class SmtFormula:
+	sort: SmtSort
+	expr : object # essentially a pysmt fnode
+@dataclass
+class BitVecExpr:
+	width: int
+	def sort(self): return BitVecSort(self.width)
+@dataclass
+class BitVecConst(BitVecExpr):
+	value: int
+@dataclass
+class BitVecSymbol(BitVecExpr):
+	name: str
+@dataclass
+class BitVecConcat(BitVecExpr):
+	msb: BitVecExpr
+	lsb: BitVecExpr
+@dataclass
+class BitVecExtract(BitVecExpr):
+	base: BitVecExpr
+	msb: int
+	lsb: int
 
-def merge_dicts(a: dict, b: dict) -> dict:
-	keys = a.keys() | b.keys()
-	if len(keys) < len(a) + len(b):
-		for k in keys:
-			assert not (k in a and k in b), f"Key {k} is used in a and b!"
-	return {**a, **b}
+@dataclass
+class Mapping:
+	"""
+	 A mapping relates a module pin to constant or symbolic bits.
+	"""
+	pin : str
+	expr : BitVecExpr
 
+@dataclass
+class Transition:
+	mappings : List[Mapping]
+
+@dataclass
 class Protocol:
-	def __init__(self, mappings: list):
-		self.mappings = mappings
-		assert len(self) > 0, f"Protocol must describe at least one transition!"
-
-	def __len__(self):
-		return len(self.mappings)
-
-	def __or__(self, other):
-		assert isinstance(other, Protocol)
-		m = [merge_dicts(*c) for c in zip_longest(self.mappings, other.mappings, fillvalue=dict())]
-		return Protocol(mappings=m)
-
-	def __add__(self, other):
-		assert isinstance(other, Protocol)
-		m = self.mappings + other.mappings
-		return Protocol(mappings=m)
-
-	def __mul__(self, other):
-		assert isinstance(other, int)
-		assert other < 1000
-		m = self.mappings * other
-		return Protocol(mappings=m)
-
-	def __rshift__(self, other):
-		assert isinstance(other, int)
-		m = [dict() for _ in range(other)] + self.mappings
-		return Protocol(mappings=m)
-
-	def __lshift__(self, other):
-		assert isinstance(other, int)
-		m = self.mappings + [dict() for _ in range(other)]
-		return Protocol(mappings=m)
-
-def BitSerial(signal: str, sym, max_bits: Optional[int] = None) -> Protocol:
-	max_bits = default(max_bits, sym.bv_width())
-	bits = min(max_bits, sym.bv_width())
-	return Protocol([{signal: BVExtract(sym, ii, ii)} for ii in range(bits)])
-
-def Repeat(signal: str, sym, cycles) -> Protocol:
-	return Protocol([{signal: sym}] * cycles)
-
-def Map(signal:str, sym) -> Protocol:
-	return Protocol([{signal: sym}])
+	"""
+	 A protocol is a fixed length sequence of transitions.
+	 TODO: - allow backward edges that are waiting for external events (from the environment)
+	       - allow various length paths that could be controlled by the model (instead of the environment)
+	"""
+	transitions : List[Transition]
 
 @dataclass
 class Transaction:
+	# name is used for debugging and error handling
 	name : str
 	proto : Protocol
 	semantics : Callable
-	args: list = field(default_factory=list)
-	ret_args: list = field(default_factory=list)
+	args: List[BitVecSymbol] = field(default_factory=list)
+	ret_args: List[BitVecSymbol] = field(default_factory=list)
 
+@dataclass
 class Spec:
-	def __init__(self, arch_state=None, mapping=None, transactions=None, invariances=None, case_split=None):
-		self.arch_state = default(arch_state, {})
-		self.transactions = default(transactions, [])
-		# TODO: invariances maybe should not be part of the Spec as they are more of an implementation detail
-		self.invariances = default(invariances, [])
-		self.mapping = default(mapping, lambda state: [])
-		self.case_split = default(case_split, list())
+	state : List[Tuple[str, SmtSort]]
+	transactions : List[Transaction]
 
-	def get_transaction(self, name):
-		return next(tt for tt in self.transactions if tt.name == name)
+@dataclass
+class SpecVerification:
+	# TODO: how should we call the check when we verify the Spec instead of using it?
+	spec: Spec
+	# invariances are formulas over implementation state that hold at the beginning
+	# and the end of each transaction as well as after reset
+	invariances : List[SmtFormula] = field(default_factory=list)
+	# mappings specify how bits in the spec state correspond to bits in the implementation state
+	mappings : List[Mapping] = field(default_factory=list)
