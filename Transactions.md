@@ -51,6 +51,41 @@ It can read and modify architectural state.
 - is it easier to understand?
 
 
+## Combinatorial Loops
+
+There are multiple sound approaches to tackling the problem of combinatorial
+loops. Some are more precise, thus allowing us to verify more circuits, but are
+harder to check.
+
+In general it seems that if we can prove for the whole (combined) design that
+there are no combinatorial loops (which most RTL synthesis tools do anyways),
+we can just ignore any worries about circular reasoning. TODO: show a little
+more convincingly that this is actually true.
+
+Some points in the design space:
+
+### Static Combinatorial Loop Checking
+
+Run a conservative static check to see which outputs of the
+implementation depend directly on the inputs.
+This information can than be used when doing compositional
+checking in that the static dependencies tell us which outputs
+can be assumed in order to prove correct input values.
+
+
+### Transaction Specific Combinatorial Dependencies
+
+When checking the transaction, we check at every transition
+which output depends on which input.
+Thus instead of generic static dependencies we get transaction
+specific dependencies. This allows more assumptions on the
+module outputs in order to prove other inputs.
+
+### Transaction Specific Combinatorial Dependencies with Case Splitting
+
+Finds the exact formula under which an output depends on an input.
+This could cover even more cases but is hopelessly over complicated.
+
 
 ## Todo:
 - check for causality:
