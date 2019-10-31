@@ -3,7 +3,7 @@
 
 from .yosys import require_yosys
 from .module import Module, HighActiveReset, LowActiveReset
-from .spec import Spec, Transaction, Protocol
+from .spec import Spec, Transaction, Protocol, VerificationProblem
 from .frontend import Map, BitSerial, Repeat
 from .mc import MCProofEngine
 from .verifier import Verifier

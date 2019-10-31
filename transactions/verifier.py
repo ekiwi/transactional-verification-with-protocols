@@ -162,7 +162,7 @@ class Verifier:
 		for trans in self.spec.transactions:
 			self.proof_transaction(trans, transaction_traces)
 
-	def proof_invariances(self, transaction_traces, invariances: List[SmtFormula], transactions: List[Transaction]):
+	def proof_invariances(self, invariances: List[SmtFormula], transactions: List[Transaction]):
 		for ii in invariances:
 			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
 				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
@@ -174,7 +174,7 @@ class Verifier:
 		for tran in transactions:
 			cycles = transaction_len(tran)
 			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
-				self.do_transaction(tran=tran, check=check, transaction_traces=transaction_traces, assume_invariances=False, no_asserts=True)
+				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
 				# assume this particular invariance
 				for ii in invariances:
 					check.assume_at(0, ii)
@@ -202,8 +202,7 @@ class Verifier:
 				assert isinstance(spec, Spec), f"No valid spec provided!"
 		return transaction_traces
 
-	def proof_all(self, transaction_traces = None):
-		assert transaction_traces is None
+	def proof_all(self):
 		#transaction_traces = self.check_transaction_trace_format(self.veri.spec, transaction_traces)
-		self.proof_invariances(transaction_traces)
-		self.proof_transactions(transaction_traces)
+		self.proof_invariances()
+		self.proof_transactions()
