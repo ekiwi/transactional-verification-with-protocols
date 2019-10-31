@@ -31,13 +31,13 @@ def main() -> int:
 	print(f"Using yosys {version}")
 
 	mod = Module.load('ser_add', [add_v], reset=HighActiveReset('rst'))
-	spec = AdderSpec(32)
+	prob = VerificationProblem(spec=AdderSpec(32), implementation='ser_add')
 
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
 	ee = SMT2ProofEngine(outdir='../smt2')
 	#ee = MCProofEngine(outdir="../btor2")
-	veri = Verifier(mod, spec, ee)
+	veri = Verifier(mod, prob, ee)
 	veri.proof_all()
 
 	return 0
