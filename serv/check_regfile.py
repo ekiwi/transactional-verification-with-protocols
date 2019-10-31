@@ -88,14 +88,14 @@ def main() -> int:
 
 	regfile = Module.load('serv_regfile', [regfile_v], reset=HighActiveReset('i_rst'))
 	mod = regfile
-	spec = RegfileSpec()
+	prob = VerificationProblem(spec=RegfileSpec(), implementation='serv_regfile')
 
 	print(f"Trying to proof {mod.name}")
 	print(mod)
 
 	#ee = SMT2ProofEngine(outdir='../smt2')
 	ee = MCProofEngine(outdir="../btor2")
-	veri = Verifier(mod, spec, ee)
+	veri = Verifier(mod, prob, ee)
 	veri.proof_all()
 
 	return 0
