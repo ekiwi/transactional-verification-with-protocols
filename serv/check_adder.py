@@ -15,13 +15,8 @@ class AdderSpec(Spec):
 											 Repeat('clr', Bool(False), bits))
 		protocol.mappings[-1]['o_v'] = carry
 
-		def semantics(spec_a, spec_b):
-			c = BVAdd(spec_a, spec_b)
-			carry = BVExtract(BVAdd(BVZExt(spec_a, 1), BVZExt(spec_b, 1)), bits, bits)
-			return {'spec_c': c, 'spec_carry': carry}
-
+		semantics = {'c': BVAdd(a, b), 'carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
 		transactions = [Transaction(name=f"add{bits}", args=[a,b], ret_args=[c,carry], semantics=semantics, proto=protocol)]
-
 		super().__init__(transactions=transactions)
 
 add_v = os.path.join('fork', 'rtl', 'ser_add.v')

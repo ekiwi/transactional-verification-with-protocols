@@ -8,24 +8,8 @@ from functools import reduce
 
 class RegfileSpec(Spec):
 	def __init__(self):
-		regs = ArrayType(BVType(5), BVType(32)) #ArraySignal('x', 5, 32)
-
-		map_regs_to_mem = True
-
-		def mapping(mod: Module, regs):
-			asserts = []
-			memory = mod['memory']
-			for ii in range(1, 32):
-				reg = Select(regs, BV(ii, 5))
-				if map_regs_to_mem:
-					iis = [Select(memory, BV(ii*16 + jj, 9)) for jj in reversed(range(16))]
-					asserts.append(Equals(reg, reduce(BVConcat, iis)))
-				else:
-					for jj in range(16):
-						a = Select(memory, BV(ii*16 + jj, 9))
-						b = BVExtract(reg, start=jj*2, end=jj*2+1)
-						asserts.append(Equals(a, b))
-			return asserts
+		# architectural state
+		regs = Symbol('regs', ArrayType(BVType(5), BVType(32)))
 
 		# build transaction
 		rs1_addr = Symbol('rs1_addr', BVType(5))
@@ -53,31 +37,30 @@ class RegfileSpec(Spec):
 
 		def is_zero(expr):
 			return Equals(expr, BV(0, expr.bv_width()))
+		do_write = And(rd_enable, Not(Equals(rd_addr, BV(0, 5))))
+		semantics = {
+			'rs1_data': Ite(is_zero(rs1_addr), BV(0, 32), Select(regs, rs1_addr)),
+			'rs2_data': Ite(is_zero(rs2_addr), BV(0, 32), Select(regs, rs2_addr)),
+			'regs': Ite(do_write, Store(regs, rd_addr, rd_data), regs)
 
-		def semantics(rs1_addr, rs2_addr, rd_enable, rd_addr, rd_data, regs):
-			rs1_data = Ite(is_zero(rs1_addr), BV(0, 32), Select(regs, rs1_addr))
-			rs2_data = Ite(is_zero(rs2_addr), BV(0, 32), Select(regs, rs2_addr))
-			do_write = And(rd_enable, Not(Equals(rd_addr, BV(0,5))))
-			regs_n = Ite(do_write, Store(regs, rd_addr, rd_data), regs)
-			return { 'rs1_data': rs1_data, 'rs2_data': rs2_data, 'regs': regs_n}
+		}
 
-		case_split = [And(rd_enable, Equals(rd_addr, BV(ii, 5))) for ii in range(32)] + [Not(rd_enable)]
-
-		idle = Transaction(name="idle", args=[], ret_args=[], semantics=lambda regs:{'regs': regs}, proto=
-		Map('i_go', Bool(False)) | Map('i_rd_en', Bool(False)) | Map('o_ready', Bool(False)))
-
+		idle = Transaction(name="idle", proto=Map('i_go', Bool(False)) | Map('i_rd_en', Bool(False)) | Map('o_ready', Bool(False)))
 		transactions = [idle, Transaction(name="rw", args=args, ret_args=ret, semantics=semantics, proto=protocol)]
 
 		# TODO: infer
-		def x0_inv(state):
-			m = state['memory']
-			return conjunction(*[Equals(Select(m, BV(j, 9)), BV(0,2)) for j in range(16)])
+		x0_inv = conjunction(*[Equals(Select(Symbol('memory', ArrayType(BVType(9), BVType(2))), BV(j, 9)), BV(0,2)) for j in range(16)])
 		inv = [
-			lambda state: Iff(state['o_ready'], Bool(False)),
-			lambda state: Iff(state['t'], Bool(False)),
-			lambda state: Equals(state['wcnt'], BV(0, 5)),
+			Not(Symbol('o_ready')),	Not(Symbol('t')), Equals(Symbol('wcnt', BVType(5)), BV(0, 5)),
 			x0_inv]
-		super().__init__(arch_state={'regs': regs}, mapping=mapping, transactions=transactions, invariances=inv, case_split=case_split)
+		super().__init__(
+			state=[regs],
+			mapping=mapping,
+			transactions=transactions,
+			invariances=inv)
+
+
+
 
 
 regfile_v = os.path.join('fork', 'rtl', 'serv_regfile.v')
@@ -86,12 +69,28 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	regfile = Module.load('serv_regfile', [regfile_v], reset=HighActiveReset('i_rst'))
-	mod = regfile
-	prob = VerificationProblem(spec=RegfileSpec(), implementation='serv_regfile')
+	# map regs to memory
+	mem = Symbol('memory', ArrayType(BVType(9), BVType(2)))
+	regs = Symbol('regs', ArrayType(BVType(5), BVType(32)))
+	mappings = [
+		StateMapping(
+			arch=Select(regs, BV(ii, 5)),
+			impl=reduce(BVConcat, (Select(mem, BV(ii * 16 + jj, 9)) for jj in reversed(range(16))))
+		)
+	for ii in range(1, 32) ]
 
-	print(f"Trying to proof {mod.name}")
-	print(mod)
+	# invariances
+	x0_inv = conjunction(
+		*[Equals(Select(Symbol('memory', ArrayType(BVType(9), BVType(2))), BV(j, 9)), BV(0, 2)) for j in range(16)])
+	invariances = [
+		Not(Symbol('o_ready')),
+		Not(Symbol('t')),
+		Equals(Symbol('wcnt', BVType(5)), BV(0, 5)),
+		x0_inv]
+
+	prob = VerificationProblem(spec=RegfileSpec(), implementation='serv_regfile', invariances=invariances, mappings=mappings)
+
+	mod = Module.load('serv_regfile', [regfile_v], reset=HighActiveReset('i_rst'))
 
 	#ee = SMT2ProofEngine(outdir='../smt2')
 	ee = MCProofEngine(outdir="../btor2")
