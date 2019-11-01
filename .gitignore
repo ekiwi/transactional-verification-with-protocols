@@ -8,6 +8,7 @@ __pycache__/
 
 # IDEA
 /.idea/
+*.iml
 
 # SMT
 /*.smt2
