@@ -10,6 +10,9 @@ SmtExpr = pysmt.fnode.FNode
 """ a Symbol is also represented by a pysmt node (which needs to actually be a Symbol(...) """
 Symbol = pysmt.fnode.FNode
 
+""" a SmtSort is also represented by a pysmt node (which needs to actually be a is_type()) """
+SmtSort = pysmt.fnode.FNode
+
 @dataclass
 class Mapping:
 	"""
@@ -63,3 +66,11 @@ class VerificationProblem:
 	invariances : List[SmtExpr] = field(default_factory=list)
 	# mappings specify how bits in the spec state correspond to bits in the implementation state
 	mappings : List[StateMapping] = field(default_factory=list)
+
+@dataclass
+class RtlModule:
+	name: str
+	inputs: Dict[str, SmtSort]
+	outputs: Dict[str, SmtSort]
+	state: Dict[str, SmtSort]
+	submodules: Dict[str, str]
