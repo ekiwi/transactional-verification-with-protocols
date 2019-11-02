@@ -6,6 +6,7 @@ from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
 from .spec import *
+from .spec_check import check_verification_problem
 from .bounded import BoundedCheck
 
 def transaction_len(tran: Transaction):
@@ -13,14 +14,11 @@ def transaction_len(tran: Transaction):
 
 class Verifier:
 	def __init__(self, mod: Module, prob: VerificationProblem, engine):
+		check_verification_problem(prob, mod)
 		self.prob = prob
 		self.mod = mod
 		self.engine = engine
 		self.verbose = True
-		# check mod against prob
-		assert prob.implementation == mod.name, f"{prob.implementation} != {mod.name}"
-		for submod, _ in prob.submodules:
-			assert submod in mod.submodules, f"missing submodule {submod} in {mod}"
 
 	def reset_active(self):
 		if self.mod.reset is not None:
@@ -162,7 +160,7 @@ class Verifier:
 		for trans in self.spec.transactions:
 			self.proof_transaction(trans, transaction_traces)
 
-	def proof_invariances(self, invariances: List[SmtFormula], transactions: List[Transaction]):
+	def proof_invariances(self, invariances: List[SmtExpr], transactions: List[Transaction]):
 		for ii in invariances:
 			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
 				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory

@@ -6,35 +6,28 @@
 from .spec import *
 from .module import Module
 from pysmt.shortcuts import get_free_variables, BOOL, BVType, ArrayType, Symbol
+import pysmt.fnode
 from typing import Optional, Set, Union
 
-
-def to_pysmt_sort(sort: SmtSort):
-	if isinstance(sort, BitVecSort):
-		if sort.width == 1: return BOOL
-		assert sort.width > 1, f"BV width too small: {sort.width}"
-		return BVType(sort.width)
-	if isinstance(sort, ArraySort):
-		return ArrayType(to_pysmt_sort(sort.index), to_pysmt_sort(sort.data))
-	assert False, f"Unsupported sort: {sort} : {type(sort)}"
+SmtSort = pysmt.fnode.FNode
 
 def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, Any], msg: str, tpe: Optional[SmtSort] = None):
-	for sym in get_free_variables(e.expr):
+	for sym in get_free_variables(e):
 		name, sort = sym.symbol_name(), sym.symbol_type()
-		assert name in allowed_symbols, f"Expression {e.expr} refers to unknown symbol {sym}.\n{msg}"
-		assert sort == allowed_symbols[name], f"Type mismatch for symbol {sym} in expression {e.expr}. Expected {allowed_symbols[name]} \n{msg}"
+		assert name in allowed_symbols, f"Expression {e} refers to unknown symbol {sym}.\n{msg}"
+		assert sort == allowed_symbols[name], f"Type mismatch for symbol {sym} in expression {e}. Expected {allowed_symbols[name]} \n{msg}"
 	if tpe is not None:
-		actual, expected = e.expr.get_type(), to_pysmt_sort(tpe)
-		assert actual == expected, f"Expression {e.expr} is of type {actual} but needs to be {expected}"
+		assert e.get_type() == tpe, f"Expression {e} is of type {e.get_type()} but needs to be {tpe}"
 
 def symbol_list_to_index(symbols: List[Symbol], prefix: str = "", no_arrays = False) -> Dict[str, Any]:
 	index = {}
 	for sym in symbols:
 		name = prefix + sym.name
+		tpe = sym.get_type()
 		if no_arrays:
-			assert isinstance(sym.sort, BitVecSort), f"Symbol {name} needs to a BitVector, not {sym.sort}!"
+			assert tpe.is_bv_type() or tpe.is_bool_type(), f"Symbol {name} needs to a BitVector or Bool, not {tpe}!"
 		assert name not in index, f"Symbol {index[name]} already defined, cannot redefine!"
-		index[name] = to_pysmt_sort(sym.sort)
+		index[name] = tpe
 	return index
 
 def merge_indices(in0: dict, in1: dict) -> dict:
@@ -68,7 +61,7 @@ def check_verification_problem(prob: VerificationProblem, mod: Module):
 	arch_state_symbols = symbol_list_to_index(prob.spec.state)
 
 	# extract potential symbols from the implementation
-	impl_state_symbols = {st.symbol.symbol_name(): st.symbol.symbol_type() for st in mod.state}
+	impl_state_symbols = {st.symbol.symbol_name(): st.symbol.symbol_type() for st in mod.state.items()}
 	submodule_state_symbols = {}
 	for instance_name, instance_spec in prob.submodules:
 		instance_arch_state = symbol_list_to_index(instance_spec.state, prefix=instance_name + ".")
