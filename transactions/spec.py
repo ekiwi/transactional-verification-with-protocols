@@ -4,24 +4,11 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Tuple, Dict, Any
 import pysmt.fnode
 
-@dataclass
-class SmtSort:
-	pass
-@dataclass
-class BitVecSort(SmtSort):
-	width: int
-@dataclass
-class ArraySort(SmtSort):
-	index: BitVecSort
-	data: BitVecSort
-@dataclass
-class Symbol:
-	name: str
-	sort: SmtSort
-@dataclass
-class SmtExpr:
-	""" transparent wrapper arround a pysmt fnode expr """
-	expr : pysmt.fnode.FNode
+""" an SmtExpr is represented by a pysmt node """
+SmtExpr = pysmt.fnode.FNode
+
+""" a Symbol is also represented by a pysmt node (which needs to actually be a Symbol(...) """
+Symbol = pysmt.fnode.FNode
 
 @dataclass
 class Mapping:
