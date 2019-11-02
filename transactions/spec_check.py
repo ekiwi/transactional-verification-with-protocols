@@ -61,7 +61,7 @@ def check_verification_problem(prob: VerificationProblem, mod: Module):
 	arch_state_symbols = symbol_list_to_index(prob.spec.state)
 
 	# extract potential symbols from the implementation
-	impl_state_symbols = {st.symbol.symbol_name(): st.symbol.symbol_type() for st in mod.state.items()}
+	impl_state_symbols = {st.symbol.symbol_name(): st.symbol.symbol_type() for st in mod.state.values()}
 	submodule_state_symbols = {}
 	for instance_name, instance_spec in prob.submodules:
 		instance_arch_state = symbol_list_to_index(instance_spec.state, prefix=instance_name + ".")
@@ -71,7 +71,7 @@ def check_verification_problem(prob: VerificationProblem, mod: Module):
 	invariance_symbols = merge_indices(impl_state_symbols, submodule_state_symbols)
 	for inv in prob.invariances:
 		msg = "Invariances can only refer to implementation state or architectural state of abstracted submodules."
-		check_smt_expr(inv, invariance_symbols, msg, tpe=BitVecSort(1))
+		check_smt_expr(inv, invariance_symbols, msg, tpe=BOOL)
 
 	# check the symbols referred to by the mappings
 	for mapping in prob.mappings:

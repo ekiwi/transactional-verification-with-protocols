@@ -160,8 +160,8 @@ class Verifier:
 		for trans in self.spec.transactions:
 			self.proof_transaction(trans, transaction_traces)
 
-	def proof_invariances(self, invariances: List[SmtExpr], transactions: List[Transaction]):
-		for ii in invariances:
+	def proof_invariances(self):
+		for ii in self.prob.invariances:
 			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
 				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
 				check.initialize_state()
@@ -201,6 +201,5 @@ class Verifier:
 		return transaction_traces
 
 	def proof_all(self):
-		#transaction_traces = self.check_transaction_trace_format(self.veri.spec, transaction_traces)
 		self.proof_invariances()
 		self.proof_transactions()
