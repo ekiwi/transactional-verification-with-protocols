@@ -23,12 +23,12 @@ class Verifier:
 	def reset_active(self):
 		if self.mod.reset is not None:
 			if isinstance(self.mod.reset, HighActiveReset):
-				return self.mod[self.mod.reset.name]
+				return Equals(Symbol(self.mod.reset.name, BVType(1)), BV(1,1))
 			else:
 				assert isinstance(self.mod.reset, LowActiveReset)
-				return Not(self.mod[self.mod.reset.name])
+				return Equals(Symbol(self.mod.reset.name, BVType(1)), BV(0,1))
 
-	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces, assume_invariances=False, no_asserts=False):
+	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces=None, assume_invariances=False, no_asserts=False):
 		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
 
 		# assume invariances hold at the beginning of the transaction
@@ -40,21 +40,21 @@ class Verifier:
 		check.assume_always(Not(self.reset_active()))
 
 		# declare transaction args
-		for arg in tran.args:
-			check.constant(arg)
+		for name, tpe in tran.args.items():
+			check.constant(Symbol(name, tpe))
 
 		# apply cycle behavior
-		for ii, m in enumerate(tran.proto.mappings):
-			for signal_name, expr in m.items():
+		for ii, tt in enumerate(tran.proto.transitions):
+			for signal_name, expr in tt.mappings.items():
 				assert not self.mod.is_state(signal_name), f"protocols may only read/write from io: {signal_name}"
 
 				if self.mod.is_output(signal_name):
 					if not no_asserts:
-						check.assert_at(ii, equal(self.mod[signal_name], expr))
+						check.assert_at(ii, Equals(Symbol(signal_name, self.mod.outputs[signal_name]), expr))
 				else:
 					# if the signal is an input, we just apply the constraint for this cycle
 					assert self.mod.is_input(signal_name)
-					check.assume_at(ii, equal(self.mod[signal_name], expr))
+					check.assume_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
 
 		# apply cycle behavior of submodules
 		sub_arch_state, sub_arch_state_n = {}, {}
@@ -174,10 +174,10 @@ class Verifier:
 			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
 				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
 				# assume this particular invariance
-				for ii in invariances:
+				for ii in self.prob.invariances:
 					check.assume_at(0, ii)
 				# invariance should hold after transaction
-				for ii in invariances:
+				for ii in self.prob.invariances:
 					check.assert_at(cycles, ii)
 
 	def check_transaction_trace_format(self, spec: Spec, transaction_traces):
