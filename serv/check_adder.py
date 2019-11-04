@@ -16,7 +16,8 @@ class AdderSpec(Spec):
 		protocol.mappings[-1]['o_v'] = carry
 
 		semantics = {'c': BVAdd(a, b), 'carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
-		transactions = [Transaction(name=f"add{bits}", args=[a,b], ret_args=[c,carry], semantics=semantics, proto=protocol)]
+		transactions = [Transaction(name=f"add{bits}", args=[a,b], ret_args=[c,carry], semantics=semantics,
+									proto=protocol.finish())]
 		super().__init__(transactions=transactions)
 
 add_v = os.path.join('fork', 'rtl', 'ser_add.v')
