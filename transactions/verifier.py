@@ -169,7 +169,7 @@ class Verifier:
 				# invariance should hold after reset
 				check.assert_at(1, ii)
 
-		for tran in transactions:
+		for tran in self.prob.spec.transactions:
 			cycles = transaction_len(tran)
 			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
 				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
