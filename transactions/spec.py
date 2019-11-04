@@ -13,7 +13,10 @@ SmtSort = pysmt.fnode.FNode
 
 @dataclass
 class Transition:
-	mappings : Dict[str, SmtExpr]
+	# constraints on/mappings of the module inputs
+	inputs: Dict[str, SmtExpr] = field(default_factory=dict)
+	# expected output
+	outputs: Dict[str, SmtExpr] = field(default_factory=dict)
 
 @dataclass
 class Protocol:

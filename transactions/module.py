@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import List,  Dict, Optional
-from .spec import SmtSort
+from .spec import SmtSort, RtlModule
 from pysmt.shortcuts import BOOL, BVType, ArrayType
 from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_module
 
@@ -54,7 +54,7 @@ def load_module(name: str, verilog_files: List[str], reset:Optional[Reset], igno
 	return dict_to_module(module_data, src, reset, submodules)
 
 
-class Module:
+class Module(RtlModule):
 	@staticmethod
 	def load(name: str, verilog_files: List[str], reset:Optional[Reset] = None, ignore_wires: bool = True, blackbox: Optional[List[str]] = None):
 		return load_module(name=name, verilog_files=verilog_files, reset=reset, ignore_wires=ignore_wires, blackbox=blackbox)
