@@ -7,23 +7,12 @@ import pysmt.fnode
 """ an SmtExpr is represented by a pysmt node """
 SmtExpr = pysmt.fnode.FNode
 
-""" a Symbol is also represented by a pysmt node (which needs to actually be a Symbol(...) """
-Symbol = pysmt.fnode.FNode
-
 """ a SmtSort is also represented by a pysmt node (which needs to actually be a is_type()) """
 SmtSort = pysmt.fnode.FNode
 
 @dataclass
-class Mapping:
-	"""
-	 A mapping relates a module pin to constant or symbolic bits.
-	"""
-	pin : str
-	expr : SmtExpr
-
-@dataclass
 class Transition:
-	mappings : List[Mapping]
+	mappings : Dict[str, SmtExpr]
 
 @dataclass
 class Protocol:
@@ -40,12 +29,12 @@ class Transaction:
 	name : str
 	proto : Protocol
 	semantics : Dict[str, SmtExpr]
-	args: List[Symbol] = field(default_factory=list)
-	ret_args: List[Symbol] = field(default_factory=list)
+	args: Dict[str, SmtSort] = field(default_factory=dict)
+	ret_args: Dict[str, SmtSort] = field(default_factory=dict)
 
 @dataclass
 class Spec:
-	state : List[Symbol] = field(default_factory=list)
+	state : Dict[str, SmtSort] = field(default_factory=dict)
 	transactions : List[Transaction] = field(default_factory=list)
 
 @dataclass
@@ -60,7 +49,7 @@ class VerificationProblem:
 	# name of the module to be verified
 	implementation: str
 	# submodules that will be replaced by their specs
-	submodules: List[Tuple[str, Spec]] = field(default_factory=list)
+	submodules: Dict[str, Spec] = field(default_factory=dict)
 	# invariances are formulas over implementation state that hold at the beginning
 	# and the end of each transaction as well as after reset
 	invariances : List[SmtExpr] = field(default_factory=list)
