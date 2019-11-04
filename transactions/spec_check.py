@@ -35,16 +35,15 @@ def merge_indices(in0: dict, in1: dict) -> dict:
 	assert len(common_keys) == 0, f"Common keys: {common_keys}"
 	return {**in0, **in1}
 
-def check_symbols(symbols: list, allowed_symbols: Dict[str, Any], help: str):
-	for sym in symbols:
-		name, sort = sym.symbol_name(), sym.symbol_type()
-		assert name in allowed_symbols, f"Formula refers to unknown symbol {sym}.\n{help}"
-		assert sort == allowed_symbols[name], f"Type mismatch for symbol {sym}. Expected {allowed_symbols[name]} \n{help}"
-
 def symbol_index(symbols):
 	return { s.symbol_name(): s.symbol_type() for s in symbols }
 
-def check_verification_problem(prob: VerificationProblem, mod: Module):
+def require_scalar(symbols: List[Symbol], kind: str):
+	for sym in symbols:
+		tpe = sym.symbol_type()
+		assert tpe.is_bv_type() or tpe.is_bool_type(), f"{kind} {sym.symbol_name()} needs to bge bitvector or bool, not {tpe}"
+
+def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 	""" runs semantic checks on verification problem """
 
 
@@ -61,14 +60,13 @@ def check_verification_problem(prob: VerificationProblem, mod: Module):
 	arch_state_symbols = symbol_list_to_index(prob.spec.state)
 
 	# extract potential symbols from the implementation
-	impl_state_symbols = {st.symbol.symbol_name(): st.symbol.symbol_type() for st in mod.state.values()}
 	submodule_state_symbols = {}
 	for instance_name, instance_spec in prob.submodules:
 		instance_arch_state = symbol_list_to_index(instance_spec.state, prefix=instance_name + ".")
 		submodule_state_symbols = merge_indices(submodule_state_symbols, instance_arch_state)
 
 	# check the symbols referred to by the invariances
-	invariance_symbols = merge_indices(impl_state_symbols, submodule_state_symbols)
+	invariance_symbols = merge_indices(mod.state, submodule_state_symbols)
 	for inv in prob.invariances:
 		msg = "Invariances can only refer to implementation state or architectural state of abstracted submodules."
 		check_smt_expr(inv, invariance_symbols, msg, tpe=BOOL)
@@ -79,4 +77,20 @@ def check_verification_problem(prob: VerificationProblem, mod: Module):
 					   msg="Should only refer to architectural state.")
 		check_smt_expr(mapping.impl, invariance_symbols,
 					   msg="Should only refer to implementation state or architectural state of abstracted submodules.")
+
+
+	# check transactions
+	tran_index = {}
+	for tran in prob.spec.transactions:
+		assert tran.name not in tran_index, f"Transaction of name {tran.name} already exists: {tran} vs {tran_index[tran.name]}"
+		tran_index[tran.name] = tran
+		check_transaction(tran, mod, arch_state_symbols)
+
+
+def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dict[str, SmtSort]):
+	require_scalar(tran.args, "Transaction argument")
+	require_scalar(tran.ret_args, "Transaction return argument")
+
+	input_symbols = merge_indices(arch_state_symbols, symbol_index(tran.args))
+	output_symbols = merge_indices(arch_state_symbols, symbol_index(tran.ret_args))
 
