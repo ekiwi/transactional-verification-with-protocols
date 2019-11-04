@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Tuple, Dict, Any
 import pysmt.fnode
@@ -62,4 +63,4 @@ class RtlModule:
 	inputs: Dict[str, SmtSort]
 	outputs: Dict[str, SmtSort]
 	state: Dict[str, SmtSort]
-	submodules: Dict[str, str]
+	submodules: Dict[str, RtlModule]

@@ -9,10 +9,10 @@ class AdderSpec(Spec):
 	def __init__(self, bits):
 		args = {'spec_a': BVType(bits), 'spec_b': BVType(bits)}
 		ret_args = {'spec_c': BVType(bits), 'spec_carry': BVType(1)}
-		protocol = Map('clr', Bool(True)) + (BitSerial('a', Symbol('spec_a', BVType(bits))) |
+		protocol = Map('clr', BV(1,1)) + (BitSerial('a', Symbol('spec_a', BVType(bits))) |
 											 BitSerial('b', Symbol('spec_b', BVType(bits))) |
 											 BitSerial('q', Symbol('spec_c', BVType(bits))) |
-											 Repeat('clr', Bool(False), bits))
+											 Repeat('clr', BV(0,1), bits))
 		protocol.mappings[-1]['o_v'] = Symbol('spec_carry', BVType(1))
 
 		a = Symbol('spec_a', BVType(bits))
