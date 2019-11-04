@@ -7,16 +7,18 @@ from transactions import *
 
 class AdderSpec(Spec):
 	def __init__(self, bits):
+		args = {'spec_a': BVType(bits), 'spec_b': BVType(bits)}
+		ret_args = {'spec_c': BVType(bits), 'spec_carry': BVType(1)}
+		protocol = Map('clr', Bool(True)) + (BitSerial('a', Symbol('spec_a', BVType(bits))) |
+											 BitSerial('b', Symbol('spec_b', BVType(bits))) |
+											 BitSerial('q', Symbol('spec_c', BVType(bits))) |
+											 Repeat('clr', Bool(False), bits))
+		protocol.mappings[-1]['o_v'] = Symbol('spec_carry', BVType(1))
+
 		a = Symbol('spec_a', BVType(bits))
 		b = Symbol('spec_b', BVType(bits))
-		c = Symbol('spec_c', BVType(bits))
-		carry = Symbol('spec_carry', BVType(1))
-		protocol = Map('clr', Bool(True)) + (BitSerial('a', a) | BitSerial('b', b) | BitSerial('q', c) |
-											 Repeat('clr', Bool(False), bits))
-		protocol.mappings[-1]['o_v'] = carry
-
-		semantics = {'c': BVAdd(a, b), 'carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
-		transactions = [Transaction(name=f"add{bits}", args=[a,b], ret_args=[c,carry], semantics=semantics,
+		semantics = {'spec_c': BVAdd(a, b), 'spec_carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
+		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics,
 									proto=protocol.finish())]
 		super().__init__(transactions=transactions)
 
