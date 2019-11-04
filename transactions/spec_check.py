@@ -38,10 +38,9 @@ def merge_indices(in0: dict, in1: dict) -> dict:
 def symbol_index(symbols):
 	return { s.symbol_name(): s.symbol_type() for s in symbols }
 
-def require_scalar(symbols: List[Symbol], kind: str):
-	for sym in symbols:
-		tpe = sym.symbol_type()
-		assert tpe.is_bv_type() or tpe.is_bool_type(), f"{kind} {sym.symbol_name()} needs to bge bitvector or bool, not {tpe}"
+def require_scalar(symbols: Dict[str, SmtSort], kind: str):
+	for name, tpe in symbols.items():
+		assert tpe.is_bv_type() or tpe.is_bool_type(), f"{kind} {name} needs to bge bitvector or bool, not {tpe}"
 
 def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 	""" runs semantic checks on verification problem """
@@ -57,7 +56,7 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 		assert name in specs, f"Spec missing for submodule {name} in {mod.name}"
 
 	# specification (aka architectural) state symbols
-	arch_state_symbols = symbol_list_to_index(prob.spec.state)
+	arch_state_symbols = prob.spec.state
 
 	# extract potential symbols from the implementation
 	submodule_state_symbols = {}
@@ -91,6 +90,6 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	require_scalar(tran.args, "Transaction argument")
 	require_scalar(tran.ret_args, "Transaction return argument")
 
-	input_symbols = merge_indices(arch_state_symbols, symbol_index(tran.args))
-	output_symbols = merge_indices(arch_state_symbols, symbol_index(tran.ret_args))
+	input_symbols = merge_indices(arch_state_symbols, tran.args)
+	output_symbols = merge_indices(arch_state_symbols, tran.ret_args)
 
