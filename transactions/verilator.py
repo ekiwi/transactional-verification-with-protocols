@@ -3,7 +3,7 @@
 
 import subprocess, re, os, tempfile, shutil
 
-from .module import Module, ArraySignal
+from .module import Module
 from .bounded import Model
 
 def require_verilator() -> str:

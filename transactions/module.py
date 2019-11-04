@@ -1,8 +1,9 @@
+from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import List,  Dict, Optional
-from pysmt.shortcuts import *
-
+from .spec import SmtSort
+from pysmt.shortcuts import BOOL, BVType, ArrayType
 from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_module
 
 @dataclass
@@ -15,19 +16,17 @@ class HighActiveReset(Reset):
 class LowActiveReset(Reset):
 	pass
 
-def to_signal(name, typ, nid, sym_name):
-	if typ[0] == 'bv' and typ[1] == 1:
-		return BoolSignal(name, nid, sym_name)
-	elif typ[0] == 'bv':
-		return BVSignal(name, typ[1], nid, sym_name)
+def to_signal_type(name, typ, nid, sym_name):
+	if typ[0] == 'bv':
+		return BVType(typ[1])
 	elif typ[0] == 'array':
 		assert typ[1][0] == 'bv'
 		assert typ[2][0] == 'bv'
-		return ArraySignal(name, address_bits=typ[1][1], data_bits=typ[2][1], nid=nid, sym_name=sym_name)
+		return ArrayType(BVType(typ[1][1]), BVType(typ[2][1]))
 
-def dict_to_module(module_data: dict, src: Optional[dict], reset: Optional[str], submodules: Optional[dict]) -> "Module":
+def dict_to_module(module_data: dict, src: Optional[dict], reset: Optional[str], submodules: Optional[dict]) -> Module:
 	for cat in ['inputs', 'outputs', 'state', 'wires']:
-		module_data[cat] = {name: to_signal(name, *a) for name, a in module_data[cat].items()}
+		module_data[cat] = {name: to_signal_type(name, *a) for name, a in module_data[cat].items()}
 	if src is None: src = {'smt2': '', 'btor': '', 'v': ''}
 	return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], submodules=submodules, reset=reset)
 
@@ -60,8 +59,8 @@ class Module:
 	def load(name: str, verilog_files: List[str], reset:Optional[Reset] = None, ignore_wires: bool = True, blackbox: Optional[List[str]] = None):
 		return load_module(name=name, verilog_files=verilog_files, reset=reset, ignore_wires=ignore_wires, blackbox=blackbox)
 
-	def __init__(self, name: str, type: str, inputs: Dict[str,"Signal"], outputs: Dict[str,"Signal"], state: Dict[str,"Signal"],
-	wires: Dict[str,"Signal"], smt2_src: str, btor2_src: str, verilog_src: str, submodules: Optional[Dict[str, "Module"]],
+	def __init__(self, name: str, type: str, inputs: Dict[str,SmtSort], outputs: Dict[str,SmtSort], state: Dict[str,SmtSort],
+	wires: Dict[str,SmtSort], smt2_src: str, btor2_src: str, verilog_src: str, submodules: Dict[str, Module],
 	reset: Optional[Reset] = None):
 		self._name = name
 		self._type = type
@@ -108,51 +107,3 @@ class Module:
 		assert isinstance(name, str)
 		assert name in self.signals, f"Unknown io/state element {name}.\nAvailable elements:{list(self.signals.keys())}"
 		return self.signals[name].symbol
-
-class Signal:
-	def __init__(self, name: str, nid: int = -1, sym_name: Optional[str] = None):
-		self.name = name
-		self.tpe = None
-		self.nid = nid
-		self._sym_name = sym_name if sym_name is not None else self.name
-	def __str__(self):
-		return f"{self.name} : ?"
-
-class BVSignal(Signal):
-	def __init__(self, name: str, bits: int, nid: int = -1, sym_name: Optional[str] = None):
-		super().__init__(name=name, nid=nid, sym_name=sym_name)
-		self.bits = bits
-		self.tpe = BVType(bits)
-		self.symbol = Symbol(self._sym_name, self.tpe)
-	def __str__(self):
-		return f"{self.name} : bv<{self.bits}>"
-
-class BoolSignal(Signal):
-	def __init__(self, name: str, nid: int = -1, sym_name: Optional[str] = None):
-		super().__init__(name=name, nid=nid, sym_name=sym_name)
-		self.tpe = BOOL
-		self.bits = 1
-		self.symbol = Symbol(self._sym_name, self.tpe)
-	def __str__(self):
-		return f"{self.name} : bool"
-
-# https://www.reddit.com/r/yosys/comments/39t2fl/new_support_for_memories_in_write_smt2_via_arrays/
-class ArraySignal(Signal):
-	def __init__(self, name: str, address_bits: int, data_bits: int, nid: int = -1, sym_name: Optional[str] = None):
-		super().__init__(name=name, nid=nid, sym_name=sym_name)
-		self.name = name
-		self.address_bits = address_bits
-		self.data_bits = data_bits
-		self.tpe = ArrayType(BVType(self.address_bits), BVType(self.data_bits))
-		self.symbol = Symbol(self._sym_name, self.tpe)
-	@staticmethod
-	def from_memory(name: str, address_bits: int, data_bits: int, read_ports: int, write_ports: int, async_read: bool):
-		assert not async_read, "asynchronous memories are not supported!"
-		return ArraySignal(name=name, address_bits=address_bits, data_bits=data_bits)
-	@staticmethod
-	def from_yosys(name: str, address_bits: str, data_bits: str, read_ports: str, write_ports: str, async_read: str):
-		return ArraySignal.from_memory(name=name, address_bits=int(address_bits), data_bits=int(data_bits),
-									   read_ports=int(read_ports), write_ports=int(write_ports),
-									   async_read=(async_read == "async"))
-	def __str__(self):
-		return f"{self.name} : bv<{self.address_bits}> -> bv<{self.data_bits}>"
