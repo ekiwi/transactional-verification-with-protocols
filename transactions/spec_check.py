@@ -107,15 +107,13 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
 
 	# check protocol
-	ios = merge_indices(mod.inputs, mod.outputs)
 	for tt in tran.proto.transitions:
-		for pin, expr in tt.mappings.items():
-			assert pin in ios, f"{pin} is not a valid I/O of module {mod.name}. Inputs: {mod.inputs}; Outputs: {mod.outputs}"
-			expected_tpe = ios[pin]
-			if pin in mod.inputs:
-				check_smt_expr(expr, tran.args, tpe=expected_tpe,
-							   msg="Input pins may be bound to constants or transaction arguments.")
-			else:
-				check_smt_expr(expr, tran.ret_args, tpe=expected_tpe,
-							   msg="Output pins may be bound to constants or transaction return arguments.")
+		for pin, expr in tt.inputs.items():
+			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
+			check_smt_expr(expr, tran.args, tpe=mod.inputs[pin],
+						   msg="Input pins may be bound to constants or transaction arguments.")
+		for pin, expr in tt.outputs.items():
+			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
+			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
+						   msg="Output pins may be bound to constants or transaction return arguments.")
 

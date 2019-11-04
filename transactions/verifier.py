@@ -22,61 +22,61 @@ class Verifier:
 
 	def reset_active(self):
 		if self.mod.reset is not None:
+			rst = Symbol(self.mod.reset.name, BVType(1))
 			if isinstance(self.mod.reset, HighActiveReset):
-				return Equals(Symbol(self.mod.reset.name, BVType(1)), BV(1,1))
+				return Equals(rst, BV(1,1))
 			else:
 				assert isinstance(self.mod.reset, LowActiveReset)
-				return Equals(Symbol(self.mod.reset.name, BVType(1)), BV(0,1))
+				return Equals(rst, BV(0,1))
 
 	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces=None, assume_invariances=False, no_asserts=False):
+		""" (symbolically) execute a transaction of the module being verified  """
 		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
 
 		# assume invariances hold at the beginning of the transaction
 		if assume_invariances:
-			for inv in self.spec.invariances:
-				check.assume_at(0, inv(self.mod))
+			for inv in self.prob.invariances:
+				check.assume_at(0, inv)
 
 		# assume reset is inactive during the transaction
 		check.assume_always(Not(self.reset_active()))
 
 		# declare transaction args
-		for name, tpe in tran.args.items():
-			check.constant(Symbol(name, tpe))
+		for instance, tpe in tran.args.items():
+			check.constant(Symbol(instance, tpe))
 
 		# apply cycle behavior
 		for ii, tt in enumerate(tran.proto.transitions):
-			for signal_name, expr in tt.mappings.items():
-				assert not self.mod.is_state(signal_name), f"protocols may only read/write from io: {signal_name}"
-
-				if self.mod.is_output(signal_name):
-					if not no_asserts:
-						check.assert_at(ii, Equals(Symbol(signal_name, self.mod.outputs[signal_name]), expr))
-				else:
-					# if the signal is an input, we just apply the constraint for this cycle
-					assert self.mod.is_input(signal_name)
-					check.assume_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
+			# apply inputs
+			for signal_name, expr in tt.inputs.items():
+				assert self.mod.is_input(signal_name)
+				check.assume_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
+			# check outputs
+			if not no_asserts:
+				for signal_name, expr in tt.outputs.items():
+					assert self.mod.is_output(signal_name)
+					check.assert_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
 
 		# apply cycle behavior of submodules
 		sub_arch_state, sub_arch_state_n = {}, {}
-		for name, mod in self.mod.submodules.items():
-			trace = transaction_traces[tran.name][name]['trace']
-			subspec = transaction_traces[tran.name][name]['spec']
+		for instance, subspec in self.prob.submodules.items():
+			trace = transaction_traces[tran.name][instance]['trace']
 			cycles = [0] + list(itertools.accumulate(len(tt.proto) for tt in trace))
-			def make_state(pre, post=""): return { n: Symbol(pre + n + post, tpe) for n, tpe in subspec.arch_state.items() }
-			arch_state_begin = make_state(f"__{name}_")
-			arch_state_end = make_state(f"__{name}_", "_n")
+			def make_state(pre, post=""): return { n: Symbol(pre + n + post, tpe) for n, tpe in subspec.state.items() }
+			arch_state_begin = make_state(f"__{instance}_")
+			arch_state_end = make_state(f"__{instance}_", "_n")
 			# start with start state + declare it as unconstrained symbolic input
 			current_state = arch_state_begin
 			for sym in current_state.values(): check.constant(sym)
 			for ii, (start_cycle, subtran) in enumerate(zip(cycles, trace)):
 				is_last = ii == len(trace) - 1
-				prefix = f"__{name}_{ii}_{subtran.name}_"
+				prefix = f"__{instance}_{ii}_{subtran.name}_"
 				next_state = make_state(prefix) if not is_last else arch_state_end
 				self.model_submodule_transaction(subtran, check, mod, start_cycle, prefix, current_state, next_state)
 				current_state = next_state
 			assert current_state == arch_state_end
-			sub_arch_state[name] = arch_state_begin
-			sub_arch_state_n[name] = arch_state_end
+			sub_arch_state[instance] = arch_state_begin
+			sub_arch_state_n[instance] = arch_state_end
 
 		return  sub_arch_state, sub_arch_state_n
 
@@ -113,16 +113,16 @@ class Verifier:
 					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
 		return start_cycle + len(tran.proto)
 
-	def proof_transaction(self, tran: Transaction, transaction_traces):
-		cycles = len(tran.proto)
+	def proof_transaction(self, tran: Transaction, spec_state: Dict[str,SmtSort], transaction_traces):
+		cycles = transaction_len(tran)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
 			sub_arch_state_index, sub_arch_state_n_index = self.do_transaction(
 				tran=tran, transaction_traces=transaction_traces, assume_invariances=True, check=check)
 
 			# native arch state tied to a physical state in the module
-			arch_state = {name: Symbol(name, tpe) for name, tpe in self.spec.arch_state.items() if not isinstance(tpe, str)}
-			arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in self.spec.arch_state.items() if not isinstance(tpe, str)}
+			arch_state = {name: Symbol(name, tpe) for name, tpe in spec_state.items() if not isinstance(tpe, str)}
+			arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in spec_state.items() if not isinstance(tpe, str)}
 			# TODO: we could assign an initial value to the arch state that is derived from the initial circuit state
 			for sym in arch_state.values():
 				check.constant(sym)
@@ -130,8 +130,8 @@ class Verifier:
 			def astate(tpe, index):
 				instance, st = tpe.split(".")
 				return index[instance][st]
-			sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in self.spec.arch_state.items() if isinstance(tpe, str)}
-			sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.spec.arch_state.items() if isinstance(tpe, str)}
+			sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in spec_state.items() if isinstance(tpe, str)}
+			sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in spec_state.items() if isinstance(tpe, str)}
 
 			# connect initial circuit and arch state
 			mapping_assumptions = self.spec.mapping(self.mod, **arch_state)
@@ -157,7 +157,7 @@ class Verifier:
 				check.assert_at(cycles, equal(sem_out[name], sym))
 
 	def proof_transactions(self, transaction_traces):
-		for trans in self.spec.transactions:
+		for trans in self.prob.spec.transactions:
 			self.proof_transaction(trans, transaction_traces)
 
 	def proof_invariances(self):
@@ -202,4 +202,4 @@ class Verifier:
 
 	def proof_all(self):
 		self.proof_invariances()
-		self.proof_transactions()
+		self.proof_transactions(transaction_traces=None)

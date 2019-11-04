@@ -9,17 +9,18 @@ class AdderSpec(Spec):
 	def __init__(self, bits):
 		args = {'spec_a': BVType(bits), 'spec_b': BVType(bits)}
 		ret_args = {'spec_c': BVType(bits), 'spec_carry': BVType(1)}
-		protocol = Map('clr', BV(1,1)) + (BitSerial('a', Symbol('spec_a', BVType(bits))) |
-											 BitSerial('b', Symbol('spec_b', BVType(bits))) |
-											 BitSerial('q', Symbol('spec_c', BVType(bits))) |
-											 Repeat('clr', BV(0,1), bits))
-		protocol.mappings[-1]['o_v'] = Symbol('spec_carry', BVType(1))
 
+		tt  = [Transition(inputs={'clr': BV(1,1)})]
+		tt += [Transition(inputs={'clr': BV(0,1),
+								  'a': BVExtract(Symbol('spec_a', BVType(bits)), ii, ii),
+								  'b': BVExtract(Symbol('spec_b', BVType(bits)), ii, ii),},
+						  outputs={'q': BVExtract(Symbol('spec_c', BVType(bits)), ii, ii)})
+			   for ii in range(bits)]
+		tt[-1].outputs['o_v'] = Symbol('spec_carry', BVType(1))
 		a = Symbol('spec_a', BVType(bits))
 		b = Symbol('spec_b', BVType(bits))
 		semantics = {'spec_c': BVAdd(a, b), 'spec_carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
-		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics,
-									proto=protocol.finish())]
+		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics, proto=Protocol(tt))]
 		super().__init__(transactions=transactions)
 
 add_v = os.path.join('fork', 'rtl', 'ser_add.v')
