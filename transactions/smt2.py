@@ -3,10 +3,11 @@
 
 # SMT2 Lib based backend for BoundedCheck
 
-import subprocess, tempfile, os, itertools, re
+import subprocess, tempfile, os, re
 from cache_to_disk import cache_to_disk
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
+from itertools import chain
 import time
 from .utils import *
 from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model, AssumptionFailure
@@ -58,15 +59,16 @@ class SMT2ProofEngine:
 		assertions  = [step.assertions for step in check.steps]
 
 		# map module i/o and state to cycle dependent function
-		symbols = [s.symbol for s in mod.signals.values()]
+		symbols = [Symbol(name, tpe) for name, tpe in chain(mod.inputs.items(), mod.outputs.items(), mod.state.items())]
 		# TODO: compute mappings lazily as not all of them will be used
 		def map_sym(symbol: Symbol, state):
-			ft = FunctionType(symbol.symbol_type(), [state_t])
-			if symbol.symbol_type().is_array_type():
-				fn = mod.name + "_m " + symbol.symbol_name()
-			else:
-				fn = mod.name + "_n " + symbol.symbol_name()
-			return Function(Symbol(fn, ft), [state])
+			tpe = symbol.symbol_type()
+			is_bool = tpe.is_bv_type() and tpe.width == 1
+			ft = FunctionType(BOOL if is_bool else tpe, [state_t])
+			if tpe.is_array_type():	fn = mod.name + "_m " + symbol.symbol_name()
+			else:                   fn = mod.name + "_n " + symbol.symbol_name()
+			if is_bool:	return Ite(Function(Symbol(fn, ft), [state]), BV(1,1), BV(0,1))
+			else:       return Function(Symbol(fn, ft), [state])
 		mappings = [{ sym: map_sym(sym, state) for sym in symbols } for state in states]
 		def in_cycle(ii, ee):
 			return substitute(ee, mappings[ii])
