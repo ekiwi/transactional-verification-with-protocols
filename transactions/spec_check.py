@@ -93,3 +93,29 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	input_symbols = merge_indices(arch_state_symbols, tran.args)
 	output_symbols = merge_indices(arch_state_symbols, tran.ret_args)
 
+	# check semantics
+	for arg_name, arg_tpe in tran.ret_args.items():
+		assert arg_name in tran.semantics, f"Need to define return parameter {arg_name} : {arg_tpe} in semantics!"
+		check_smt_expr(tran.semantics[arg_name], input_symbols, tpe=arg_tpe,
+					   msg="Semantics can only refer to arguments and architectural state.")
+	for state_name, state_tpe in arch_state_symbols.items():
+		if state_name in tran.semantics:
+			check_smt_expr(tran.semantics[state_name], input_symbols, tpe=state_tpe,
+						   msg="Semantics can only refer to arguments and architectural state.")
+	output_names = set(output_symbols.keys())
+	unknown_outputs = set(tran.semantics.keys()) - output_names
+	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
+
+	# check protocol
+	ios = merge_indices(mod.inputs, mod.outputs)
+	for tt in tran.proto.transitions:
+		for pin, expr in tt.mappings.items():
+			assert pin in ios, f"{pin} is not a valid I/O of module {mod.name}. Inputs: {mod.inputs}; Outputs: {mod.outputs}"
+			expected_tpe = ios[pin]
+			if pin in mod.inputs:
+				check_smt_expr(expr, tran.args, tpe=expected_tpe,
+							   msg="Input pins may be bound to constants or transaction arguments.")
+			else:
+				check_smt_expr(expr, tran.ret_args, tpe=expected_tpe,
+							   msg="Output pins may be bound to constants or transaction return arguments.")
+
