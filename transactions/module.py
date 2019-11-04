@@ -102,8 +102,3 @@ class Module:
 		dd += ["Wires:"] + render_fields(self.wires) + [""]
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
-
-	def __getitem__(self, name: str):
-		assert isinstance(name, str)
-		assert name in self.signals, f"Unknown io/state element {name}.\nAvailable elements:{list(self.signals.keys())}"
-		return self.signals[name].symbol
