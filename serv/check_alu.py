@@ -4,8 +4,6 @@
 import os
 from pysmt.shortcuts import *
 from transactions import *
-from typing import List
-from functools import reduce
 
 ALU_RESULT_ADD  = BV(0, 2)
 ALU_RESULT_SR   = BV(1, 2)
