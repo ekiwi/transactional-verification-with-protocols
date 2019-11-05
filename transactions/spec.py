@@ -25,15 +25,15 @@ class Protocol:
 	 TODO: - allow backward edges that are waiting for external events (from the environment)
 	       - allow various length paths that could be controlled by the model (instead of the environment)
 	"""
-	transitions : List[Transition]
+	transitions : List[Transition] = field(default_factory=lambda: [Transition()])
 
 @dataclass
 class Transaction:
 	# name is used for debugging and error handling
 	name : str
-	proto : Protocol
+	proto : Protocol = field(default_factory=Protocol)
 	# TODO: allow semantics to refer to subtransactions which could then be verified as uninterpreted functions
-	semantics : Dict[str, SmtExpr]
+	semantics : Dict[str, SmtExpr] = field(default_factory=dict)
 	args: Dict[str, SmtSort] = field(default_factory=dict)
 	ret_args: Dict[str, SmtSort] = field(default_factory=dict)
 
