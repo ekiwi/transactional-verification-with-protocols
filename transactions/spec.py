@@ -32,6 +32,7 @@ class Transaction:
 	# name is used for debugging and error handling
 	name : str
 	proto : Protocol
+	# TODO: allow semantics to refer to subtransactions which could then be verified as uninterpreted functions
 	semantics : Dict[str, SmtExpr]
 	args: Dict[str, SmtSort] = field(default_factory=dict)
 	ret_args: Dict[str, SmtSort] = field(default_factory=dict)

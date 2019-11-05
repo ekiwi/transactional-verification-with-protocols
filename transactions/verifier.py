@@ -49,13 +49,11 @@ class Verifier:
 		for ii, tt in enumerate(tran.proto.transitions):
 			# apply inputs
 			for signal_name, expr in tt.inputs.items():
-				assert self.mod.is_input(signal_name)
 				check.assume_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
 			# check outputs
 			if not no_asserts:
 				for signal_name, expr in tt.outputs.items():
-					assert self.mod.is_output(signal_name)
-					check.assert_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
+					check.assert_at(ii, Equals(Symbol(signal_name, self.mod.outputs[signal_name]), expr))
 
 		# apply cycle behavior of submodules
 		sub_arch_state, sub_arch_state_n = {}, {}
@@ -113,48 +111,49 @@ class Verifier:
 					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
 		return start_cycle + len(tran.proto)
 
-	def proof_transaction(self, tran: Transaction, spec_state: Dict[str,SmtSort], transaction_traces):
+	def proof_transaction(self, tran: Transaction, transaction_traces=None):
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
 			sub_arch_state_index, sub_arch_state_n_index = self.do_transaction(
 				tran=tran, transaction_traces=transaction_traces, assume_invariances=True, check=check)
 
-			# native arch state tied to a physical state in the module
-			arch_state = {name: Symbol(name, tpe) for name, tpe in spec_state.items() if not isinstance(tpe, str)}
-			arch_state_n = {name: Symbol(name + "_n", tpe) for name, tpe in spec_state.items() if not isinstance(tpe, str)}
-			# TODO: we could assign an initial value to the arch state that is derived from the initial circuit state
-			for sym in arch_state.values():
-				check.constant(sym)
-			# submodule arch state
-			def astate(tpe, index):
-				instance, st = tpe.split(".")
-				return index[instance][st]
-			sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in spec_state.items() if isinstance(tpe, str)}
-			sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in spec_state.items() if isinstance(tpe, str)}
+			# declare architectural state input
+			for state_name, state_tpe in self.prob.spec.state.items():
+				check.constant(Symbol(state_name, state_tpe))
 
 			# connect initial circuit and arch state
-			mapping_assumptions = self.spec.mapping(self.mod, **arch_state)
-			for a in mapping_assumptions:
-				check.assume_at(0, a)
+			for mapping in self.prob.mappings:
+				check.assume_at(0, Equals(mapping.arch, mapping.impl))
 
-			# semantics as pure function calculated during initialization
-			def rename(symbols):
-				return {sym.symbol_name(): sym for sym in symbols}
-			args = rename(tran.args)
-			# arg constants were already declared during unrolling
-			sem_out = tran.semantics(**args, **arch_state, **sub_arch_state)
-			ret_args = rename(tran.ret_args)
-			for name, sym in itertools.chain(ret_args.items(), arch_state_n.items()):
-				check.function(sym, sem_out[name])
+			# submodule arch state
+			#def astate(tpe, index):
+			#	instance, st = tpe.split(".")
+			#	return index[instance][st]
+			#sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in self.prob.spec.state.items() }
+			#sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.prob.spec.state.items() }
+
+
+
+			# semantics as next state function for spec state and outputs
+			for ret_name, ret_tpe in tran.ret_args.items():
+				expr = tran.semantics[ret_name]
+				check.function(Symbol(ret_name, ret_tpe), expr)
+			for state_name, state_tpe in self.prob.spec.state:
+				# keep state the same if no update specified
+				prev_state = Symbol(state_name, state_tpe)
+				next_state = tran.semantics.get(state_name, prev_state)
+				check.function(Symbol(state_name + "_n", state_tpe), next_state)
 
 			# verify arch states after transaction
-			mapping_assertions = self.spec.mapping(self.mod, **arch_state_n)
-			for a in mapping_assertions:
-				check.assert_at(cycles, a)
+			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state}
+			for mapping in self.prob.mappings:
+				arch = substitute(mapping.arch, arch_next)
+				check.assume_at(cycles, Equals(arch, mapping.impl))
+
 			# verify submodule arch state equivalence
-			for name, sym in sub_arch_state_n.items():
-				check.assert_at(cycles, equal(sem_out[name], sym))
+			#for name, sym in sub_arch_state_n.items():
+			#	check.assert_at(cycles, equal(sem_out[name], sym))
 
 	def proof_transactions(self, transaction_traces):
 		for trans in self.prob.spec.transactions:
