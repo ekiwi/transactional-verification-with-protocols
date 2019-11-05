@@ -3,13 +3,13 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Tuple, Dict, Any
-import pysmt.fnode
+import pysmt.fnode, pysmt.typing
 
 """ an SmtExpr is represented by a pysmt node """
 SmtExpr = pysmt.fnode.FNode
 
-""" a SmtSort is also represented by a pysmt node (which needs to actually be a is_type()) """
-SmtSort = pysmt.fnode.FNode
+""" a SmtSort is represented by a pysmt sort type """
+SmtSort = pysmt.typing.PySMTType
 
 @dataclass
 class Transition:
