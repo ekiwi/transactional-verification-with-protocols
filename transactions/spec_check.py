@@ -107,6 +107,7 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
 
 	# check protocol
+	assert len(tran.proto.transitions) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
 	for tt in tran.proto.transitions:
 		for pin, expr in tt.inputs.items():
 			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
