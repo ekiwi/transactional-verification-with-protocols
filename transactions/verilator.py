@@ -47,10 +47,8 @@ def find_clock(top: Module):
 				return ii
 	raise RuntimeError(f"Failed ot find clock of {top.name} in {inputs} (candidates: {candidates})")
 
-def to_verilator_name(top: Module, st) -> str:
-	parts = [top.name] + st.name.split('.')
-	# TODO: remove terrible hack
-	#parts = [pp[2:] if pp.startswith("o_") else pp for pp in parts]
+def to_verilator_name(top: Module, name) -> str:
+	parts = [top.name] + name.split('.')
 	return "->".join(parts)
 
 def top_hpp(top: Module):
@@ -58,9 +56,7 @@ def top_hpp(top: Module):
 	# filter out clock input and inputs to blackboxed submodules (which start with __EXP)
 	inputs = [ii for ii in top.inputs.keys() if ii != clk and not ii.startswith('__')]
 	set_lines = [f"\telse if(name == \"{name}\") {{ top->{name} = value; }}" for name in inputs]
-	registers = [st.name for st in top.state.values() if not isinstance(st, ArraySignal)]
-	state = [(st.name, to_verilator_name(top, st))
-			 for st in top.state.values() if not isinstance(st, ArraySignal)]
+	state = [(name, to_verilator_name(top, name)) for name, tpe in top.state.items() if not tpe.is_array_type()]
 	set_lines += [f"\telse if(name == \"{name}\") {{ assert(step0); top->{prop} = value; }}" for name, prop in state]
 	sett = '\n'.join(set_lines)
 	return _top_hpp_template.format(name=top.name, clock=clk, sett=sett)
@@ -109,7 +105,7 @@ def make_sim_script(top: Module, m: Model):
 	script = []
 
 	# initialize register state
-	registers = [st.name for st in top.state.values() if not isinstance(st, ArraySignal)]
+	registers = [name for name, tpe in top.state.items() if not tpe.is_array_type()]
 	script += [f"set {rr} {m.data[0][m.indices[rr]]}" for rr in registers]
 
 	# step through cycles
