@@ -95,8 +95,15 @@ def parse_yosys_btor(btor_src: str) -> dict:
 	nodes = {}
 	ii = -1
 
+	label_re = re.compile(r'\s*; (\d+) \\(\w+)')
+
 	for line in btor_src.splitlines():
-		if line.strip().startswith(';'): continue
+		if line.strip().startswith(';'):
+			m = label_re.match(line.strip())
+			if m is not None:
+				ii, label = m.groups()
+				nodes[int(ii)].append(label)
+			continue
 		parts = line.strip().split(' ')
 		ii = int(parts[0])
 		cmd = parts[1]
@@ -118,26 +125,35 @@ def parse_yosys_btor(btor_src: str) -> dict:
 						elif ff == 'sid': entry.append(sorts[int(value)])
 						elif ff == 'nid': entry.append(int(value))
 						else: raise RuntimeError(f"unknown format {ff}")
-					nodes[ii] = [cmd] + entry
 
+					# some lines have a trailing label
 					if len(parts) > 2 + len(form):
-						name = parts[2+len(form)]
-						res['wires'][name] = (entry[0], ii, name)
-
-					# for outputs, get type
-					if name == 'output':
-						name = entry[1]
-						src = nodes[entry[0]]
-						res['outputs'][name] = (src[1], entry[0], name)
-					elif name in {'state', 'output', 'input'}:
-						key = "register" if entry[0][0] == 'bv' else "memorie"
-						key = key if name == 'state' else name
-						# filter out unnamed signals
-						if len(entry) > 1:
-							res[key + "s"][entry[1]] = (entry[0], ii, entry[1])
+						lbl = parts[2+len(form)]
+						entry += [lbl]
+					nodes[ii] = [name, cmd] + entry
 					unknown = False
 					break
 			assert not unknown, f"command {cmd} is unknown"
+
+	for ii, node in nodes.items():
+		name = node[0]
+		if name not in {'output', 'input', 'state'}: continue
+
+		if name == 'output': sym_tpe = nodes[node[2]][2]
+		else:                sym_tpe = node[2]
+		if len(node) > 3:    sym_name = node[3]
+		else:                sym_name = None
+		# outputs will be deleted later on thus we want to refer to their source id instead
+		if name == 'output':
+			ii = node[2]
+
+		if sym_name is not None:
+			if name == 'state':
+				key = 'registers' if sym_tpe[0] == 'bv' else 'memories'
+			else:
+				key = name + 's'
+			res[key][sym_name] = (sym_tpe, ii, sym_name)
+
 	res['ii'] = ii
 	res['sorts'] = sorts
 	res['symbols'] = {**res['registers'], **res['memories'], **res['inputs'], **res['outputs'], **res['wires']}
