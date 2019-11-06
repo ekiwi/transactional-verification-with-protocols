@@ -89,29 +89,6 @@ abstract_refile_and_alu_check = VerificationProblem(
 
 src = [os.path.join('fork', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg', 'serv_bufreg', 'serv_csr', 'serv_ctrl', 'serv_decode', 'serv_regfile', 'serv_mem_if', 'serv_top']]
 
-def get_transaction(spec: Spec, name: str) -> Transaction:
-	try:
-		return next(tt for tt in spec.transactions if tt.name == name)
-	except StopIteration:
-		assert False, f"Failed to find transaction {name}. {[tt.name for tt in spec.transactions]}"
-
-def blackbox(disable: bool):
-	if disable: return [], None
-
-	blackbox = []
-	transaction_traces = defaultdict(dict)
-
-	def register(typ, instance, trace, spec):
-		blackbox.append(typ)
-		transaction_traces['e2e_add'][instance] = {'spec': spec, 'trace': [get_transaction(spec, name) for name in trace]}
-
-	# for now magically assume that we know the correct transaction traces
-	register(typ='serv_regfile', instance='regfile', trace=['RW', 'Idle'], spec=regfile_spec)
-	register(typ='serv_alu', instance='alu', trace=['Idle', 'Idle', 'Add', 'Idle'], spec=alu_spec)
-
-	return blackbox, transaction_traces
-
-
 def main() -> int:
 
 	# select verification problem
