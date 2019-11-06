@@ -4,12 +4,9 @@
 # code to verify the well-formedness (i.e. semantic checks) of a verification problem and spec
 
 from .spec import *
-from .module import Module
-from pysmt.shortcuts import get_free_variables, BOOL, BVType, ArrayType, Symbol
-import pysmt.fnode
-from typing import Optional, Set, Union
+from pysmt.shortcuts import get_free_variables, BOOL, Symbol
+from typing import Optional
 
-SmtSort = pysmt.fnode.FNode
 
 def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, Any], msg: str, tpe: Optional[SmtSort] = None):
 	for sym in get_free_variables(e):
