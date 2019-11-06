@@ -29,14 +29,13 @@ class Verifier:
 				assert isinstance(self.mod.reset, LowActiveReset)
 				return Equals(rst, BV(0,1))
 
-	def do_transaction(self, tran: Transaction, check: BoundedCheck, transaction_traces=None, assume_invariances=False, no_asserts=False):
+	def do_transaction(self, tran: Transaction, check: BoundedCheck, trace: Dict[str, List[Transaction]], no_asserts=False):
 		""" (symbolically) execute a transaction of the module being verified  """
 		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
 
 		# assume invariances hold at the beginning of the transaction
-		if assume_invariances:
-			for inv in self.prob.invariances:
-				check.assume_at(0, inv)
+		for inv in self.prob.invariances:
+			check.assume_at(0, inv)
 
 		# assume reset is inactive during the transaction
 		check.assume_always(Not(self.reset_active()))
@@ -111,53 +110,6 @@ class Verifier:
 					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
 		return start_cycle + len(tran.proto)
 
-	def proof_transaction(self, tran: Transaction, transaction_traces=None):
-		cycles = transaction_len(tran)
-		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
-			# instantiate unrolled transaction
-			sub_arch_state_index, sub_arch_state_n_index = self.do_transaction(
-				tran=tran, transaction_traces=transaction_traces, assume_invariances=True, check=check)
-
-			# declare architectural state input
-			for state_name, state_tpe in self.prob.spec.state.items():
-				check.constant(Symbol(state_name, state_tpe))
-
-			# connect initial circuit and arch state
-			for mapping in self.prob.mappings:
-				check.assume_at(0, Equals(mapping.arch, mapping.impl))
-
-			# submodule arch state
-			#def astate(tpe, index):
-			#	instance, st = tpe.split(".")
-			#	return index[instance][st]
-			#sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in self.prob.spec.state.items() }
-			#sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.prob.spec.state.items() }
-
-
-
-			# semantics as next state function for spec state and outputs
-			for ret_name, ret_tpe in tran.ret_args.items():
-				expr = tran.semantics[ret_name]
-				check.function(Symbol(ret_name, ret_tpe), expr)
-			for state_name, state_tpe in self.prob.spec.state.items():
-				# keep state the same if no update specified
-				prev_state = Symbol(state_name, state_tpe)
-				next_state = tran.semantics.get(state_name, prev_state)
-				check.function(Symbol(state_name + "_n", state_tpe), next_state)
-
-			# verify arch states after transaction
-			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
-			for mapping in self.prob.mappings:
-				arch = substitute(mapping.arch, arch_next)
-				check.assert_at(cycles, Equals(arch, mapping.impl))
-
-			# verify submodule arch state equivalence
-			#for name, sym in sub_arch_state_n.items():
-			#	check.assert_at(cycles, equal(sem_out[name], sym))
-
-	def proof_transactions(self, transaction_traces):
-		for trans in self.prob.spec.transactions:
-			self.proof_transaction(trans, transaction_traces)
 
 	def proof_invariances(self):
 		for ii in self.prob.invariances:
@@ -179,27 +131,7 @@ class Verifier:
 				for ii in self.prob.invariances:
 					check.assert_at(cycles, ii)
 
-	def check_transaction_trace_format(self, spec: Spec, transaction_traces):
-		# if there are no (blackboxed) submodules, there is no need for transaction traces
-		if len(self.mod.submodules) == 0:
-			return {}
-		assert isinstance(transaction_traces, dict), f"Invalid instruction traces provided: {transaction_traces}"
-
-		# check that for each transaction we have a set of traces
-		for tran in spec.transactions:
-			assert tran.name in transaction_traces, f"Missing transaction trace for {tran.name}: {list(transaction_traces.keys())}"
-			traces = transaction_traces[tran.name]
-			# check that for each balckboxed submodule we have a trace of the correct length
-			for bb in self.mod.submodules.values():
-				assert bb.name in traces, f"Missing transaction trace for {tran.name} for submodule {bb.name}"
-				trace = traces[bb.name]['trace']
-				trace_len = sum(len(tt.proto) for tt in trace)
-				assert trace_len == transaction_len(tran), f"Transaction trace for {tran.name} for submodule {bb.name} is {trace_len} cycles long, needs to be {transaction_len(tran)}"
-				spec = traces[bb.name]['spec']
-				assert isinstance(spec, Spec), f"No valid spec provided!"
-		return transaction_traces
-
-	def proof_inductive_base_case(self):
+	def verify_inductive_base_case(self):
 		""" prove that the invariances hold after reset """
 		with BoundedCheck(f"invariances on state in {self.prob.implementation} hold after reset ", self, cycles=1) as check:
 			# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
@@ -209,7 +141,7 @@ class Verifier:
 			for ii in self.prob.invariances:
 				check.assert_at(1, ii)
 
-	def find_instruction_trace(self, tran: Transaction) -> Dict[str, List[Transaction]]:
+	def find_transaction_trace(self, tran: Transaction) -> Dict[str, List[Transaction]]:
 		if len(self.prob.submodules) == 0: return {}
 		# TODO: actually discover traces
 		assert set(self.prob.submodules.keys()) == {'regfile', 'add'}, f"{list(self.prob.submodules.keys())}"
@@ -225,12 +157,79 @@ class Verifier:
 		else:
 			assert False, f"Unknown transaction {tran.name}"
 
+	def verify_transaction_trace_format(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+		# check that for each blackboxed submodule we have a trace of the correct length
+		for name, spec in self.prob.submodules.items():
+			assert name in trace, f"Missing transaction trace for {tran.name} for submodule {name}"
+			trace_len = sum(transaction_len(tt) for tt in trace[name])
+			assert trace_len == transaction_len(tran), f"Transaction trace for {tran.name} for submodule {name} is {trace_len} cycles long, needs to be {transaction_len(tran)}"
+			for subtran in trace[name]:
+				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
+
+	def verify_transaction_trace(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+		""" ensures that the transaction trace selected is the only feasible one """
+		if len(self.prob.submodules) == 0:
+			assert len(trace) == 0, f"Did not expect a trace: {trace}"
+			return
+		self.verify_transaction_trace_format(tran, trace)
+		raise NotImplementedError("TODO")
 
 
+	def verify_transaction_output(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+		""" checks that the transaction output is correct """
+		cycles = transaction_len(tran)
+		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
+			# instantiate unrolled transaction
+			sub_arch_state_index, sub_arch_state_n_index = self.do_transaction(tran=tran,trace=trace, check=check)
+
+			# declare architectural state input
+			for state_name, state_tpe in self.prob.spec.state.items():
+				check.constant(Symbol(state_name, state_tpe))
+
+			# connect initial circuit and arch state
+			for mapping in self.prob.mappings:
+				check.assume_at(0, Equals(mapping.arch, mapping.impl))
+
+			# submodule arch state
+			# def astate(tpe, index):
+			#	instance, st = tpe.split(".")
+			#	return index[instance][st]
+			# sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in self.prob.spec.state.items() }
+			# sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.prob.spec.state.items() }
+
+			# semantics as next state function for spec state and outputs
+			for ret_name, ret_tpe in tran.ret_args.items():
+				expr = tran.semantics[ret_name]
+				check.function(Symbol(ret_name, ret_tpe), expr)
+			for state_name, state_tpe in self.prob.spec.state.items():
+				# keep state the same if no update specified
+				prev_state = Symbol(state_name, state_tpe)
+				next_state = tran.semantics.get(state_name, prev_state)
+				check.function(Symbol(state_name + "_n", state_tpe), next_state)
+
+			# verify arch states after transaction
+			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
+			for mapping in self.prob.mappings:
+				arch = substitute(mapping.arch, arch_next)
+				check.assert_at(cycles, Equals(arch, mapping.impl))
+
+	# verify submodule arch state equivalence
+	# for name, sym in sub_arch_state_n.items():
+	#	check.assert_at(cycles, equal(sem_out[name], sym))
+
+	def verify_inductive_step(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+		""" checks that the the invariants are inductive over transaction tran """
+		cycles = transaction_len(tran)
+		with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
+			self.do_transaction(tran=tran, check=check, trace=trace, no_asserts=True)
+			# all invariances should hold after the transaction
+			for ii in self.prob.invariances:
+				check.assert_at(cycles, ii)
 
 	def proof_all(self):
-		self.proof_inductive_base_case()
-
-
-		self.proof_invariances()
-		self.proof_transactions(transaction_traces=None)
+		self.verify_inductive_base_case()
+		for tran in self.prob.spec.transactions:
+			trace = self.find_transaction_trace(tran)
+			self.verify_transaction_trace(tran, trace)
+			self.verify_transaction_output(tran, trace)
+			self.verify_inductive_step(tran, trace)
