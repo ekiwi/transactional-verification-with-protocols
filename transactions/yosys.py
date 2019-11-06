@@ -245,19 +245,28 @@ def parse_ilang(ilang_src: str) -> dict:
 
 ExposePrefix: str = "__EXP_"
 
-def expose_module(modules: dict, top: str, expose: str):
+def expose_modules(modules: dict, top: str, expose: List[str]):
+	cmds = []
+	submods = []
+	for instance in expose:
+		new_cmds, new_submods = expose_module(modules, top, instance)
+		cmds += new_cmds
+		submods += new_submods
+	return cmds, submods
+
+def expose_module(modules: dict, top: str, instance_name: str):
 	assert '\\' + top in modules, f"could not find top module: {top} in {list(modules.keys())}"
-	assert '\\' + expose in modules, f"could not find expose module: {expose} in {list(modules.keys())}"
+	top_type = modules['\\' + top]
+	top_cells = top_type['cells']
+	assert '.' not in instance_name, f"can only expose direct submodules for now: {instance_name}"
+	assert '\\' + instance_name in top_cells, f"could not find expose instance: {instance_name} in {list(top_cells.keys())}"
 
-	# module declaration of module that needs to be exposed
-	emod = modules['\\' + expose]
-
-	tmod = modules['\\' + top]
-	instances = [c for c in tmod['cells'].values() if c['type'] == '\\' + expose]
-	assert len(instances) > 0, f"could not find any instance of {expose} in {top}"
+	instance = top_cells['\\' + instance_name]
+	instance_type_name = instance['type'][1:]
+	instance_type = modules['\\' + instance_type_name]
 
 	# remember port names in order to avoid name clashes
-	port_names = set(w['name'] for w in chain(tmod['inputs'].values(), tmod['outputs'].values()))
+	port_names = set(w['name'] for w in chain(top_type['inputs'].values(), top_type['outputs'].values()))
 
 	cmds = []
 	submods = []
@@ -274,29 +283,26 @@ def expose_module(modules: dict, top: str, expose: str):
 		cmds.append(f"add {port_dir} {mangled_name} {p_bits}")
 		return mangled_name
 
-	for ii in instances:
-		name = ii['name'][1:]
-		con = ii['connects']
-		mod = {'name': name, 'type': expose, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {}}
+	con = instance['connects']
+	mod = {'name': instance_name, 'type': instance_type_name, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {}}
 
-		# add i/o
-		for inp in emod['inputs'].values():
-			toplevel_out = add_port(mod, inp['name'][1:], 'input', inp['bits'])
-			instance_in = [cc for cc in con if cc['lhs'] == inp['name']]
-			assert len(instance_in) > 0, f"could not find connection to {inp['name']} for instance {name}: {con}"
-			assert len(instance_in) < 2, f"found multiple: {instance_in}"
-			# connect wire feeding the module to be exposed to the toplevel output
-			cmds.append(f"connect -set {toplevel_out} {instance_in[0]['rhs']}")
-		for out in emod['outputs'].values():
-			toplevel_in = add_port(mod, out['name'][1:], 'output', out['bits'])
-			instance_out = [cc for cc in con if cc['lhs'] == out['name']]
-			assert len(instance_out) > 0, f"could not find connection from {out['name']} for instance {name}: {con}"
-			assert len(instance_out) < 2, f"found multiple: {instance_out}"
-			# connect wire (formally) driven by module output to toplevel input
-			cmds.append(f"connect -set {instance_out[0]['rhs']} {toplevel_in}")
-		# delete cell
-		cmds.append(f"delete {name}")
+	# add i/o
+	for inp in instance_type['inputs'].values():
+		toplevel_out = add_port(mod, inp['name'][1:], 'input', inp['bits'])
+		instance_in = [cc for cc in con if cc['lhs'] == inp['name']]
+		assert len(instance_in) > 0, f"could not find connection to {inp['name']} for instance {instance_name}: {con}"
+		assert len(instance_in) < 2, f"found multiple: {instance_in}"
+		# connect wire feeding the module to be exposed to the toplevel output
+		cmds.append(f"connect -set {toplevel_out} {instance_in[0]['rhs']}")
+	for out in instance_type['outputs'].values():
+		toplevel_in = add_port(mod, out['name'][1:], 'output', out['bits'])
+		instance_out = [cc for cc in con if cc['lhs'] == out['name']]
+		assert len(instance_out) > 0, f"could not find connection from {out['name']} for instance {instance_name}: {con}"
+		assert len(instance_out) < 2, f"found multiple: {instance_out}"
+		# connect wire (formally) driven by module output to toplevel input
+		cmds.append(f"connect -set {instance_out[0]['rhs']} {toplevel_in}")
+	# delete cell
+	cmds.append(f"delete {instance_name}")
 
-		submods.append(mod)
-
+	submods.append(mod)
 	return cmds, submods

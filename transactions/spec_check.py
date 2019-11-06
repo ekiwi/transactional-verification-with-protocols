@@ -49,9 +49,9 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 	assert mod.name == prob.implementation, f"Loaded module and implementation do not match!"
 
 	# make sure there are matching pairs of submodules (instances) and corresponding specs
-	for name, _ in prob.submodules:
+	for name in prob.submodules.keys():
 		assert name in mod.submodules, f"{name} is not an instance in {mod.name}"
-	specs = { name for name, _ in prob.submodules }
+	specs = { name for name in prob.submodules.keys() }
 	for name in mod.submodules.keys():
 		assert name in specs, f"Spec missing for submodule {name} in {mod.name}"
 
@@ -60,8 +60,8 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 
 	# extract potential symbols from the implementation
 	submodule_state_symbols = {}
-	for instance_name, instance_spec in prob.submodules:
-		instance_arch_state = symbol_list_to_index(instance_spec.state, prefix=instance_name + ".")
+	for instance_name, instance_spec in prob.submodules.items():
+		instance_arch_state = {instance_name + "." + n: t for n,t in instance_spec.state.items()}
 		submodule_state_symbols = merge_indices(submodule_state_symbols, instance_arch_state)
 
 	# check the symbols referred to by the invariances

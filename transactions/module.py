@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import List,  Dict, Optional
 from .spec import SmtSort, RtlModule
 from pysmt.shortcuts import BOOL, BVType, ArrayType
-from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_module
+from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_modules
 
 @dataclass
 class Reset:
@@ -34,20 +34,18 @@ def load_module(name: str, verilog_files: List[str], reset:Optional[Reset], igno
 	for ff in verilog_files:
 		assert os.path.isfile(ff), ff
 
-	pre_mc_cmds = []
+	cmds = []
 	submodules = {}
 	if blackbox is not None and len(blackbox) > 0:
-		for bb in blackbox:
-			src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['ilang'],
-								pre_mc_cmds=pre_mc_cmds)
-			ilang_modules = parse_ilang(src['ilang'])
-			cmds, submod_data = expose_module(ilang_modules, top=name, expose=bb)
-			pre_mc_cmds += [f"select {name}"] + cmds + ["select *", "clean"]
-			for data in submod_data:
-				submod = dict_to_module(data, src=None, reset=None, submodules=None)
-				submodules[submod.name] = submod
+		src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['ilang'])
+		ilang_modules = parse_ilang(src['ilang'])
+		cmds, submod_data = expose_modules(ilang_modules, top=name, expose=blackbox)
+		cmds = [f"select {name}"] + cmds + ["select *", "clean"]
+		for data in submod_data:
+			submod = dict_to_module(data, src=None, reset=None, submodules=None)
+			submodules[submod.name] = submod
 
-	src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['v', 'smt2', 'btor'], pre_mc_cmds=pre_mc_cmds)
+	src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['v', 'smt2', 'btor'], pre_mc_cmds=cmds)
 	smt2_names = parse_yosys_smt2(src['smt2'])
 	btor2_names = parse_yosys_btor(src['btor'])
 	module_data = merge_smt2_and_btor(smt2_names, btor2_names)
