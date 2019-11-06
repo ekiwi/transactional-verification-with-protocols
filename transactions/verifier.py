@@ -149,7 +149,7 @@ class Verifier:
 			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
 			for mapping in self.prob.mappings:
 				arch = substitute(mapping.arch, arch_next)
-				check.assume_at(cycles, Equals(arch, mapping.impl))
+				check.assert_at(cycles, Equals(arch, mapping.impl))
 
 			# verify submodule arch state equivalence
 			#for name, sym in sub_arch_state_n.items():
