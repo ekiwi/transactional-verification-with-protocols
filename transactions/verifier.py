@@ -199,6 +199,25 @@ class Verifier:
 				assert isinstance(spec, Spec), f"No valid spec provided!"
 		return transaction_traces
 
+	def proof_inductive_base_case(self):
+		""" prove that the invariances hold after reset """
+		with BoundedCheck(f"invariances on state in {self.prob.implementation} hold after reset ", self, cycles=1) as check:
+			# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
+			check.initialize_state()
+			check.assume_at(0, self.reset_active())
+			# all invariances should hold after reset
+			for ii in self.prob.invariances:
+				check.assert_at(1, ii)
+
+	def find_instruction_trace(self, tran: Transaction) -> Dict[str, List[Transaction]]:
+		if len(self.prob.submodules) == 0: return {}
+		# TODO: actually discover traces
+
+
+
 	def proof_all(self):
+		self.proof_inductive_base_case()
+
+
 		self.proof_invariances()
 		self.proof_transactions(transaction_traces=None)
