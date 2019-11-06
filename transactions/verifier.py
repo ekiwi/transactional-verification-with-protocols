@@ -139,14 +139,14 @@ class Verifier:
 			for ret_name, ret_tpe in tran.ret_args.items():
 				expr = tran.semantics[ret_name]
 				check.function(Symbol(ret_name, ret_tpe), expr)
-			for state_name, state_tpe in self.prob.spec.state:
+			for state_name, state_tpe in self.prob.spec.state.items():
 				# keep state the same if no update specified
 				prev_state = Symbol(state_name, state_tpe)
 				next_state = tran.semantics.get(state_name, prev_state)
 				check.function(Symbol(state_name + "_n", state_tpe), next_state)
 
 			# verify arch states after transaction
-			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state}
+			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
 			for mapping in self.prob.mappings:
 				arch = substitute(mapping.arch, arch_next)
 				check.assume_at(cycles, Equals(arch, mapping.impl))
