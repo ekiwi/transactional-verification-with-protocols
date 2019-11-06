@@ -57,16 +57,21 @@ class Verifier:
 		# apply cycle behavior of submodules
 		sub_arch_state, sub_arch_state_n = {}, {}
 		for instance, subspec in self.prob.submodules.items():
-			trace = transaction_traces[tran.name][instance]['trace']
-			cycles = [0] + list(itertools.accumulate(len(tt.proto) for tt in trace))
-			def make_state(pre, post=""): return { n: Symbol(pre + n + post, tpe) for n, tpe in subspec.state.items() }
-			arch_state_begin = make_state(f"__{instance}_")
-			arch_state_end = make_state(f"__{instance}_", "_n")
+			subtrace = trace[instance]
+
+			# declare architectural state at the beginning and at the end of the toplevel transaciton
+			arch_state_begin = { f"{instance}.{n}":   tpe for n, tpe in subspec.state.items() }
+			arch_state_end   = { f"{instance}.{n}_n": tpe for n, tpe in subspec.state.items() }
+
 			# start with start state + declare it as unconstrained symbolic input
 			current_state = arch_state_begin
-			for sym in current_state.values(): check.constant(sym)
-			for ii, (start_cycle, subtran) in enumerate(zip(cycles, trace)):
-				is_last = ii == len(trace) - 1
+			for name, tpe in current_state.values():
+				check.constant(sym)
+
+
+			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
+			for ii, (start_cycle, subtran) in enumerate(zip(offsets, subtrace)):
+				is_last = ii == len(subtrace) - 1
 				prefix = f"__{instance}_{ii}_{subtran.name}_"
 				next_state = make_state(prefix) if not is_last else arch_state_end
 				self.model_submodule_transaction(subtran, check, mod, start_cycle, prefix, current_state, next_state)
