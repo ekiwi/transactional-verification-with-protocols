@@ -114,15 +114,21 @@ def blackbox(disable: bool):
 
 def main() -> int:
 
-	blackboxes, transaction_traces = blackbox(disable=True)
-	mod = Module.load('serv_top', src, reset=HighActiveReset('i_rst'), ignore_wires=False, blackbox=blackboxes)
+	# select verification problem
+	#prob = no_abstraction_check
+	prob = abstract_refile_and_alu_check
 
-
-	print(f"Trying to proof {mod.name}")
-
+	# select proof engine
 	ee = SMT2ProofEngine(outdir='../smt2')
-	#ee = MCProofEngine(outdir="../btor2")
-	veri = Verifier(mod, no_abstraction_check, ee)
+	# ee = MCProofEngine(outdir="../btor2")
+
+	#
+	mod = Module.load(prob.implementation, src,
+					  reset=HighActiveReset('i_rst'),
+					  ignore_wires=False,
+					  blackbox=list(prob.submodules.keys()))
+	print(f"Trying to proof {mod.name}")
+	veri = Verifier(mod, prob, ee)
 	veri.proof_all()
 
 	return 0
