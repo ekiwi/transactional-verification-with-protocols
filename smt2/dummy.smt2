@@ -1,0 +1,6 @@
+(set-logic QF_UF)
+(declare-sort A)
+(declare-fun just-making-sure-the-smt2-dir-exists () A)
+(assert (= just-making-sure-the-smt2-dir-exists just-making-sure-the-smt2-dir-exists))
+(check-sat)
+(get-model)
