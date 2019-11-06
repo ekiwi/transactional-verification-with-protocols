@@ -67,8 +67,8 @@ class MCProofEngine:
 				assert_to_expr.append(aa)
 
 		# watch outputs + state in order to get their values in case of a witness
-		watched_signals = { f"__watch_{sig.symbol.symbol_name()}": sig.symbol
-							for sig in mod.signals.values() if not sig.tpe.is_array_type() }
+		watched_signals = { f"__watch_{sig_name}": Symbol(sig_name, sig_tpe)
+							for sig_name, sig_tpe in mod.signals.items() if not sig_tpe.is_array_type() }
 		for name, expr in watched_signals.items(): solver.watch(name, expr)
 
 		# run solver
@@ -119,8 +119,7 @@ class BtorMC:
 		# load symbols form parser
 		for name, data in rr['symbols'].items():
 			typ, ii, _ = data
-			if typ[0] == 'bv' and typ[1] == 1: typ = BOOL
-			elif typ[0] == 'bv': typ = BVType(typ[1])
+			if typ[0] == 'bv': typ = BVType(typ[1])
 			elif typ[0] == 'array':
 				addr = BVType(typ[1][1])
 				data = BVType(typ[2][1])
