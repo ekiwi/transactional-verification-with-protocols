@@ -212,6 +212,19 @@ class Verifier:
 	def find_instruction_trace(self, tran: Transaction) -> Dict[str, List[Transaction]]:
 		if len(self.prob.submodules) == 0: return {}
 		# TODO: actually discover traces
+		assert set(self.prob.submodules.keys()) == {'regfile', 'add'}, f"{list(self.prob.submodules.keys())}"
+		rr = {tt.name: tt for tt in self.prob.submodules['regfile'].transactions}
+		aa = {tt.name: tt for tt in self.prob.submodules['alu'].transactions}
+		if tran.name == 'Idle':
+			return {'regfile': [rr['Idle']], 'alu': [aa['Idle']]}
+		elif tran.name == 'Add':
+			return {
+				'regfile': [rr[n] for n in ['RW', 'Idle']],
+				'alu': [aa[n] for n in ['Idle', 'Idle', 'Add', 'Idle']]
+			}
+		else:
+			assert False, f"Unknown transaction {tran.name}"
+
 
 
 
