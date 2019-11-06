@@ -24,9 +24,9 @@ protocol = Protocol(
 	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': BV(0,1),
 						'i_rs1_addr': rs1_addr, 'i_rs2_addr': rs2_addr},
 				outputs={'o_ready': BV(1,1)})] +
-	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': rd_enable,
+	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': Ite(rd_enable, BV(1,1), BV(0,1)),
 						'i_rs1_addr': rs1_addr, 'i_rs2_addr': rs2_addr, 'i_rd_addr': rd_addr,
-						'r_rd': BVExtract(rd_data, ii, ii)},
+						'i_rd': BVExtract(rd_data, ii, ii)},
 				outputs={'o_ready': BV(0,1),
 						 'o_rs1': BVExtract(rs1_data, ii, ii),
 						 'o_rs2': BVExtract(rs2_data, ii, ii)})
@@ -50,8 +50,8 @@ regfile_spec = Spec(
 			outputs={}#{'o_ready': BV(0,1)}
 		)])),
 		Transaction("RW", proto=protocol, semantics=semantics,
-					args={'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_enable': BVType(1),
-						  'rd_data': BVType(32)},
+					args={'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_addr': BVType(5),
+						  'rd_enable': BOOL, 'rd_data': BVType(32)},
 					ret_args={'rs1_data': BVType(32), 'rs2_data': BVType(32)}
 		)
 	]
