@@ -6,8 +6,10 @@ from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
 from .spec import *
-from .spec_check import check_verification_problem
+from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
+from typing import Iterable, Tuple, Union
+from itertools import chain
 
 def transaction_len(tran: Transaction):
 	return len(tran.proto.transitions)
@@ -29,6 +31,16 @@ class Verifier:
 				assert isinstance(self.mod.reset, LowActiveReset)
 				return Equals(rst, BV(0,1))
 
+	@staticmethod
+	def declare_constants(check: BoundedCheck, symbols: Union[Dict[str, SmtSort],Dict[str,Symbol]]):
+		for name, tpe in symbols.items():
+			if isinstance(tpe, Symbol):	check.constant(tpe)
+			else:                       check.constant(Symbol(name, tpe))
+
+	@staticmethod
+	def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = ""):
+		return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
+
 	def do_transaction(self, tran: Transaction, check: BoundedCheck, trace: Dict[str, List[Transaction]], no_asserts=False):
 		""" (symbolically) execute a transaction of the module being verified  """
 		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
@@ -41,8 +53,7 @@ class Verifier:
 		check.assume_always(Not(self.reset_active()))
 
 		# declare transaction args
-		for instance, tpe in tran.args.items():
-			check.constant(Symbol(instance, tpe))
+		self.declare_constants(check, tran.args)
 
 		# apply cycle behavior
 		for ii, tt in enumerate(tran.proto.transitions):
@@ -58,83 +69,82 @@ class Verifier:
 		sub_arch_state, sub_arch_state_n = {}, {}
 		for instance, subspec in self.prob.submodules.items():
 			subtrace = trace[instance]
+			submodule = self.mod.submodules[instance]
 
-			# declare architectural state at the beginning and at the end of the toplevel transaciton
-			arch_state_begin = { f"{instance}.{n}":   tpe for n, tpe in subspec.state.items() }
-			arch_state_end   = { f"{instance}.{n}_n": tpe for n, tpe in subspec.state.items() }
+			# declare architectural state at the beginning and at the end of the toplevel transaction
+			arch_state_begin = self.make_symbols(subspec.state, instance + ".")
+			self.declare_constants(check, arch_state_begin)
+			sub_arch_state = merge_indices(sub_arch_state, arch_state_begin)
+			arch_state_end = self.make_symbols(subspec.state, instance + ".", "_n")
+			sub_arch_state_n = merge_indices(sub_arch_state_n, arch_state_end)
 
-			# start with start state + declare it as unconstrained symbolic input
+			# start with start state
 			current_state = arch_state_begin
-			for name, tpe in current_state.values():
-				check.constant(sym)
-
 
 			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
 			for ii, (start_cycle, subtran) in enumerate(zip(offsets, subtrace)):
+				# execute subtransaction
 				is_last = ii == len(subtrace) - 1
-				prefix = f"__{instance}_{ii}_{subtran.name}_"
-				next_state = make_state(prefix) if not is_last else arch_state_end
-				self.model_submodule_transaction(subtran, check, mod, start_cycle, prefix, current_state, next_state)
+				prefix = f"{instance}.{subtran.name}.{start_cycle}."
+				self.model_submodule_transaction(subtran, check, submodule, subspec.state, start_cycle, prefix)
+
+				# connect state
+				if ii == 0:
+
+
+
+				if is_last:	next_state = arch_state_end
+				else:       next_state = { prefix+n: tpe for n, tpe in subspec.state.items() }
+
+
+
 				current_state = next_state
+
+			# we end with the final sub arch state
 			assert current_state == arch_state_end
-			sub_arch_state[instance] = arch_state_begin
-			sub_arch_state_n[instance] = arch_state_end
-
-		return  sub_arch_state, sub_arch_state_n
 
 
-	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: Module, start_cycle: int, prefix: str, arch_in, arch_out):
+	@staticmethod
+	def map_symbols(symbols: Iterable[Tuple[str, SmtSort]], fun: Callable):
+		return { Symbol(n,t): Symbol(fun(n), t) for n,t in symbols }
+
+	def apply_semantics(self, tran: Transaction, check: BoundedCheck, state: Dict[str, SmtSort] , prefix: str = ""):
+		# the semantics operate on previous arch state and input args
+		if len(prefix) > 0:
+			mapping = self.map_symbols(chain(tran.args.items(), self.prob.spec.state.items()), lambda n: prefix + n)
+		else:
+			mapping = {}
+		# semantics as next state function for spec state and outputs
+		for ret_name, ret_tpe in tran.ret_args.items():
+			expr = tran.semantics[ret_name]
+			check.function(Symbol(prefix + ret_name, ret_tpe), substitute(expr, mapping))
+		for state_name, state_tpe in state.items():
+			# keep state the same if no update specified
+			prev_state = Symbol(state_name, state_tpe)
+			next_state = tran.semantics.get(state_name, prev_state)
+			check.function(Symbol(prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
+
+	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: RtlModule, state: Dict[str, SmtSort], start_cycle: int, prefix: str):
 		# declare arguments for this particular transaction
-		args = { sym.symbol_name(): Symbol(prefix + sym.symbol_name(), sym.symbol_type()) for sym in tran.args }
-		for sym in args.values(): check.constant(sym)
+		args = { prefix + name: tpe for name, tpe in tran.args.items() }
+		self.declare_constants(check, args)
 
-		# calculate semanitcs of this transaction
-		sem_out = tran.semantics(**args, **arch_in)
-
-		# declare return arguments as functions
-		ret_args = { sym.symbol_name(): Symbol(prefix + sym.symbol_name(), sym.symbol_type()) for sym in tran.ret_args }
-		for name, sym in ret_args.items():
-			check.function(sym, sem_out[name])
-
-		# declare next arch state as functions
-		for name, sym in arch_out.items():
-			check.function(sym, sem_out[name])
+		# calculate semantics of this transaction
+		self.apply_semantics(tran, check, state, prefix)
 
 		# we need to rename references to the transaction arguments in the protocol mapping
-		mappings = { sym: Symbol(prefix + sym.symbol_name(), sym.symbol_type()) for sym in itertools.chain(tran.args, tran.ret_args) }
+		mappings = self.map_symbols(itertools.chain(tran.args.items(), tran.ret_args.items()), lambda n: prefix+n)
 
-		for ii, m in enumerate(tran.proto.mappings):
-			for signal_name, expr in m.items():
-				renamed_expr = substitute(expr, mappings)
-				if submodule.is_output(signal_name):
-					# we need to apply the output of the blackboxed submodule to the input of the module we are verifying
-					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
-				else:
-					assert submodule.is_input(signal_name)
-					# we just connect the inputs because we assume that they are correct
-					check.assume_at(ii + start_cycle, equal(submodule[signal_name], renamed_expr))
-		return start_cycle + len(tran.proto)
+		for ii, tt in enumerate(tran.proto.transitions):
+			# connect inputs
+			for signal_name, expr in tt.inputs.items():
+				check.assume_at(start_cycle + ii, Equals(Symbol(signal_name, submodule.inputs[signal_name]), substitute(expr, mappings)))
+			# connect outputs
+			for signal_name, expr in tt.outputs.items():
+				check.assert_at(start_cycle + ii, Equals(Symbol(signal_name, submodule.outputs[signal_name]), substitute(expr, mappings)))
 
+		return start_cycle + transaction_len(tran)
 
-	def proof_invariances(self):
-		for ii in self.prob.invariances:
-			with BoundedCheck(f"invariance holds after reset ({ii})", self, cycles=1) as check:
-				# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
-				check.initialize_state()
-				check.assume_at(0, self.reset_active())
-				# invariance should hold after reset
-				check.assert_at(1, ii)
-
-		for tran in self.prob.spec.transactions:
-			cycles = transaction_len(tran)
-			with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
-				self.do_transaction(tran=tran, check=check, assume_invariances=False, no_asserts=True)
-				# assume this particular invariance
-				for ii in self.prob.invariances:
-					check.assume_at(0, ii)
-				# invariance should hold after transaction
-				for ii in self.prob.invariances:
-					check.assert_at(cycles, ii)
 
 	def verify_inductive_base_case(self):
 		""" prove that the invariances hold after reset """
@@ -149,7 +159,7 @@ class Verifier:
 	def find_transaction_trace(self, tran: Transaction) -> Dict[str, List[Transaction]]:
 		if len(self.prob.submodules) == 0: return {}
 		# TODO: actually discover traces
-		assert set(self.prob.submodules.keys()) == {'regfile', 'add'}, f"{list(self.prob.submodules.keys())}"
+		assert set(self.prob.submodules.keys()) == {'regfile', 'alu'}, f"{list(self.prob.submodules.keys())}"
 		rr = {tt.name: tt for tt in self.prob.submodules['regfile'].transactions}
 		aa = {tt.name: tt for tt in self.prob.submodules['alu'].transactions}
 		if tran.name == 'Idle':
@@ -177,7 +187,8 @@ class Verifier:
 			assert len(trace) == 0, f"Did not expect a trace: {trace}"
 			return
 		self.verify_transaction_trace_format(tran, trace)
-		raise NotImplementedError("TODO")
+		print("WARN: transaction traces are currently NOT verified! FIXME!")
+		# TODO: check that module reset is never active!
 
 
 	def verify_transaction_output(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
@@ -185,7 +196,7 @@ class Verifier:
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
-			sub_arch_state_index, sub_arch_state_n_index = self.do_transaction(tran=tran,trace=trace, check=check)
+			self.do_transaction(tran=tran,trace=trace, check=check)
 
 			# declare architectural state input
 			for state_name, state_tpe in self.prob.spec.state.items():
@@ -203,14 +214,7 @@ class Verifier:
 			# sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.prob.spec.state.items() }
 
 			# semantics as next state function for spec state and outputs
-			for ret_name, ret_tpe in tran.ret_args.items():
-				expr = tran.semantics[ret_name]
-				check.function(Symbol(ret_name, ret_tpe), expr)
-			for state_name, state_tpe in self.prob.spec.state.items():
-				# keep state the same if no update specified
-				prev_state = Symbol(state_name, state_tpe)
-				next_state = tran.semantics.get(state_name, prev_state)
-				check.function(Symbol(state_name + "_n", state_tpe), next_state)
+			self.apply_semantics(tran, check, self.prob.spec.state)
 
 			# verify arch states after transaction
 			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
