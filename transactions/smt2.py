@@ -176,7 +176,7 @@ class Solver:
 
 	def _check_sat(self, filename, funs, assertions, get_cmds=[]):
 		stdout, delta = _check_sat(solver=self.bin, header=self.header, filename=filename, funs=funs, assertions=assertions, get_cmds=get_cmds)
-		assert 'error' not in stdout, f"SMT solver call failed: {stdout}"
+		assert 'error' not in stdout, f"SMT solver call failed on {filename}: {stdout}"
 		return stdout, delta
 
 	def _check_vc(self, vc, filename):
