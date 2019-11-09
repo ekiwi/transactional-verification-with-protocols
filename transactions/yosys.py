@@ -284,7 +284,8 @@ def expose_module(modules: dict, top: str, instance_name: str):
 		return mangled_name
 
 	con = instance['connects']
-	mod = {'name': instance_name, 'type': instance_type_name, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {}}
+	mod = {'name': instance_name, 'type': instance_type_name, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {},
+		   'io_prefix': f"{ExposePrefix}{instance_name}_"}
 
 	# add i/o
 	for inp in instance_type['inputs'].values():

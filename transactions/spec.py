@@ -68,3 +68,6 @@ class RtlModule:
 	outputs: Dict[str, SmtSort]
 	state: Dict[str, SmtSort]
 	submodules: Dict[str, RtlModule]
+	# the string that needs to be prepended to io names to access this io
+	# (this is a detail necessary for our "expose submodule" implementation)
+	io_prefix: str = ""
