@@ -47,7 +47,7 @@ regfile_spec = Spec(
 	transactions=[
 		Transaction("Idle", proto=Protocol([Transition(
 			inputs={'i_go': BV(0,1), 'i_rd_en': BV(0,1)},
-			outputs={}#{'o_ready': BV(0,1)}
+			outputs={'o_ready': BV(0,1)} # cool test: comment out this line and the invariance that decode.state == 0 won't hold when verifying serv-top
 		)])),
 		Transaction("RW", proto=protocol, semantics=semantics,
 					args={'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_addr': BVType(5),
