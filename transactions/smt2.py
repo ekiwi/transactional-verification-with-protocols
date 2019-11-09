@@ -54,10 +54,6 @@ class SMT2ProofEngine:
 			solver.comment(f"Initialize State")
 			solver.add(Function(init_fun, [states[0]]))
 
-		# add invariant assumptions to steps
-		assumptions = [step.assumptions + check.assumptions for step in check.steps]
-		assertions  = [step.assertions for step in check.steps]
-
 		# map module i/o and state to cycle dependent function
 		symbols = [Symbol(name, tpe) for name, tpe in chain(mod.inputs.items(), mod.outputs.items(), mod.state.items())]
 		# TODO: compute mappings lazily as not all of them will be used
@@ -72,6 +68,20 @@ class SMT2ProofEngine:
 		mappings = [{ sym: map_sym(sym, state) for sym in symbols } for state in states]
 		def in_cycle(ii, ee):
 			return substitute(ee, mappings[ii])
+
+		# check if assumptions are cycle dependent
+		symbol_set = set(symbols)
+		is_cycle_dep = lambda expr: set(get_free_variables(expr)) & symbol_set != set()
+		cycle_dependent = [aa for aa in check.assumptions if is_cycle_dep(aa)]
+		cycle_independent = [aa for aa in check.assumptions if not is_cycle_dep(aa)]
+		solver.comment("Invariant Assumptions")
+		for aa in cycle_independent:
+			solver.add(aa)
+
+		# add invariant assumptions to steps
+		assumptions = [step.assumptions + cycle_dependent for step in check.steps]
+		assertions  = [step.assertions for step in check.steps]
+
 
 		# check each step
 		assertion_symbols = []
