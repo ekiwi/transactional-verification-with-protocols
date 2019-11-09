@@ -56,6 +56,9 @@ class SMT2ProofEngine:
 
 		# map module i/o and state to cycle dependent function
 		symbols = [Symbol(name, tpe) for name, tpe in chain(mod.inputs.items(), mod.outputs.items(), mod.state.items())]
+		for submodule in mod.submodules.values():
+			symbols += [Symbol(submodule.io_prefix + name, tpe) for name, tpe in
+						chain(submodule.inputs.items(), submodule.outputs.items())]
 		# TODO: compute mappings lazily as not all of them will be used
 		def map_sym(symbol: Symbol, state):
 			tpe = symbol.symbol_type()

@@ -134,10 +134,12 @@ class Verifier:
 		for ii, tt in enumerate(tran.proto.transitions):
 			# connect inputs
 			for signal_name, expr in tt.inputs.items():
-				check.assume_at(start_cycle + ii, Equals(Symbol(signal_name, submodule.inputs[signal_name]), substitute(expr, mappings)))
+				sig = Symbol(submodule.io_prefix + signal_name, submodule.inputs[signal_name])
+				check.assume_at(start_cycle + ii, Equals(sig, substitute(expr, mappings)))
 			# connect outputs
 			for signal_name, expr in tt.outputs.items():
-				check.assert_at(start_cycle + ii, Equals(Symbol(signal_name, submodule.outputs[signal_name]), substitute(expr, mappings)))
+				sig = Symbol(submodule.io_prefix + signal_name, submodule.outputs[signal_name])
+				check.assert_at(start_cycle + ii, Equals(sig, substitute(expr, mappings)))
 
 		return start_cycle + transaction_len(tran)
 

@@ -28,6 +28,7 @@ def dict_to_module(module_data: dict, src: Optional[dict], reset: Optional[str],
 	for cat in ['inputs', 'outputs', 'state', 'wires']:
 		module_data[cat] = {name: to_signal_type(name, *a) for name, a in module_data[cat].items()}
 	if src is None: src = {'smt2': '', 'btor': '', 'v': ''}
+	module_data['io_prefix'] = module_data.get('io_prefix', '')
 	return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], submodules=submodules, reset=reset)
 
 def load_module(name: str, verilog_files: List[str], reset:Optional[Reset], ignore_wires: bool, blackbox: Optional[List[str]]):
@@ -59,9 +60,10 @@ class Module(RtlModule):
 
 	def __init__(self, name: str, type: str, inputs: Dict[str,SmtSort], outputs: Dict[str,SmtSort], state: Dict[str,SmtSort],
 	wires: Dict[str,SmtSort], smt2_src: str, btor2_src: str, verilog_src: str, submodules: Dict[str, Module],
-	reset: Optional[Reset] = None):
+	reset: Optional[Reset] = None, io_prefix: str = ""):
 		self._name = name
 		self._type = type
+		self.io_prefix = io_prefix
 		self.inputs = inputs
 		self.outputs = outputs
 		self.state = state
