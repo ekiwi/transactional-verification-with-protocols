@@ -36,8 +36,12 @@ class Verifier:
 		for sym in symbols.values(): check.constant(sym)
 
 	@staticmethod
-	def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = ""):
+	def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
 		return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
+
+	@staticmethod
+	def map_symbols(symbols: Dict[str, Symbol]) -> Dict[Symbol, Symbol]:
+		return {Symbol(name, sym.symbol_type()): sym for name, sym in symbols.items()}
 
 	def do_transaction(self, tran: Transaction, check: BoundedCheck, trace: Dict[str, List[Transaction]], no_asserts=False):
 		""" (symbolically) execute a transaction of the module being verified  """
@@ -97,14 +101,12 @@ class Verifier:
 
 		return sub_arch_state_n
 
-	@staticmethod
-	def map_symbols(symbols: Iterable[Tuple[str, SmtSort]], fun: Callable):
-		return { Symbol(n,t): Symbol(fun(n), t) for n,t in symbols }
-
 	def apply_semantics(self, tran: Transaction, check: BoundedCheck, state: Dict[str, Symbol], prefix: str = ""):
 		# the semantics operate on previous arch state and input args
 		if len(prefix) > 0:
-			mapping = self.map_symbols(chain(tran.args.items(), self.prob.spec.state.items()), lambda n: prefix + n)
+			args = self.make_symbols(tran.args, prefix)
+			state_syms = self.make_symbols(state, prefix)
+			mapping = self.map_symbols(merge_indices(args, state_syms))
 		else:
 			mapping = {}
 		# semantics as next state function for spec state and outputs
@@ -129,7 +131,8 @@ class Verifier:
 		self.apply_semantics(tran, check, state, prefix)
 
 		# we need to rename references to the transaction arguments in the protocol mapping
-		mappings = self.map_symbols(itertools.chain(tran.args.items(), tran.ret_args.items()), lambda n: prefix+n)
+		ret_args = self.make_symbols(tran.ret_args, prefix)
+		mappings = self.map_symbols(merge_indices(args, ret_args))
 
 		for ii, tt in enumerate(tran.proto.transitions):
 			# connect inputs
@@ -214,10 +217,6 @@ class Verifier:
 				arch = substitute(mapping.arch, arch_next)
 				impl = substitute(mapping.impl, subarch_next)
 				check.assert_at(cycles, Equals(arch, impl))
-
-	# verify submodule arch state equivalence
-	# for name, sym in sub_arch_state_n.items():
-	#	check.assert_at(cycles, equal(sem_out[name], sym))
 
 	def verify_inductive_step(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
 		""" checks that the the invariants are inductive over transaction tran """
