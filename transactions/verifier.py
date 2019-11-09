@@ -64,7 +64,7 @@ class Verifier:
 					check.assert_at(ii, Equals(Symbol(signal_name, self.mod.outputs[signal_name]), expr))
 
 		# apply cycle behavior of submodules
-		sub_arch_state, sub_arch_state_n = {}, {}
+		sub_arch_state_n = {}
 		for instance, subspec in self.prob.submodules.items():
 			subtrace = trace[instance]
 			submodule = self.mod.submodules[instance]
@@ -72,10 +72,9 @@ class Verifier:
 			# declare architectural state at the beginning and at the end of the toplevel transaction
 			arch_state_begin = self.make_symbols(subspec.state, instance + ".")
 			self.declare_constants(check, arch_state_begin)
-			sub_arch_state = merge_indices(sub_arch_state, arch_state_begin)
 			arch_state_end = self.make_symbols(subspec.state, instance + ".", "_n")
 			self.declare_constants(check, arch_state_end)
-			sub_arch_state_n = merge_indices(sub_arch_state_n, arch_state_end)
+			sub_arch_state_n = {**sub_arch_state_n, **{instance + "." + name: sym for name, sym in arch_state_end.items()}}
 
 			# start with start state
 			current_state = arch_state_begin
@@ -96,6 +95,7 @@ class Verifier:
 			for name, sym in arch_state_end.items():
 				check.assume_always(Equals(sym, current_state[name]))
 
+		return sub_arch_state_n
 
 	@staticmethod
 	def map_symbols(symbols: Iterable[Tuple[str, SmtSort]], fun: Callable):
@@ -139,7 +139,7 @@ class Verifier:
 			# connect outputs
 			for signal_name, expr in tt.outputs.items():
 				sig = Symbol(submodule.io_prefix + signal_name, submodule.outputs[signal_name])
-				check.assert_at(start_cycle + ii, Equals(sig, substitute(expr, mappings)))
+				check.assume_at(start_cycle + ii, Equals(sig, substitute(expr, mappings)))
 
 		return start_cycle + transaction_len(tran)
 
@@ -194,7 +194,7 @@ class Verifier:
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
-			self.do_transaction(tran=tran,trace=trace, check=check)
+			subarch_n = self.do_transaction(tran=tran,trace=trace, check=check)
 
 			# declare architectural state input
 			for state_name, state_tpe in self.prob.spec.state.items():
@@ -204,21 +204,16 @@ class Verifier:
 			for mapping in self.prob.mappings:
 				check.assume_at(0, Equals(mapping.arch, mapping.impl))
 
-			# submodule arch state
-			# def astate(tpe, index):
-			#	instance, st = tpe.split(".")
-			#	return index[instance][st]
-			# sub_arch_state   = {name: astate(tpe, sub_arch_state_index)   for name, tpe in self.prob.spec.state.items() }
-			# sub_arch_state_n = {name: astate(tpe, sub_arch_state_n_index) for name, tpe in self.prob.spec.state.items() }
-
 			# semantics as next state function for spec state and outputs
 			self.apply_semantics(tran, check, self.prob.spec.state)
 
 			# verify arch states after transaction
 			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
+			subarch_next = {Symbol(name, sym.symbol_type()): sym for name, sym in subarch_n.items()}
 			for mapping in self.prob.mappings:
 				arch = substitute(mapping.arch, arch_next)
-				check.assert_at(cycles, Equals(arch, mapping.impl))
+				impl = substitute(mapping.impl, subarch_next)
+				check.assert_at(cycles, Equals(arch, impl))
 
 	# verify submodule arch state equivalence
 	# for name, sym in sub_arch_state_n.items():
