@@ -32,10 +32,8 @@ class Verifier:
 				return Equals(rst, BV(0,1))
 
 	@staticmethod
-	def declare_constants(check: BoundedCheck, symbols: Union[Dict[str, SmtSort],Dict[str,Symbol]]):
-		for name, tpe in symbols.items():
-			if isinstance(tpe, Symbol):	check.constant(tpe)
-			else:                       check.constant(Symbol(name, tpe))
+	def declare_constants(check: BoundedCheck, symbols: Dict[str, Symbol]):
+		for sym in symbols.values(): check.constant(sym)
 
 	@staticmethod
 	def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = ""):
@@ -53,7 +51,7 @@ class Verifier:
 		check.assume_always(Not(self.reset_active()))
 
 		# declare transaction args
-		self.declare_constants(check, tran.args)
+		self.declare_constants(check, self.make_symbols(tran.args))
 
 		# apply cycle behavior
 		for ii, tt in enumerate(tran.proto.transitions):
@@ -76,6 +74,7 @@ class Verifier:
 			self.declare_constants(check, arch_state_begin)
 			sub_arch_state = merge_indices(sub_arch_state, arch_state_begin)
 			arch_state_end = self.make_symbols(subspec.state, instance + ".", "_n")
+			self.declare_constants(check, arch_state_end)
 			sub_arch_state_n = merge_indices(sub_arch_state_n, arch_state_end)
 
 			# start with start state
@@ -84,31 +83,25 @@ class Verifier:
 			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
 			for ii, (start_cycle, subtran) in enumerate(zip(offsets, subtrace)):
 				# execute subtransaction
-				is_last = ii == len(subtrace) - 1
 				prefix = f"{instance}.{subtran.name}.{start_cycle}."
 				self.model_submodule_transaction(subtran, check, submodule, subspec.state, start_cycle, prefix)
 
-				# connect state
-				if ii == 0:
+				# connect input state
+				for name, sym in current_state.items():
+					check.assume_always(Equals(Symbol(prefix+name, sym.symbol_type()), sym))
+				# remember output state
+				current_state = self.make_symbols(subspec.state, prefix, "_n")
 
-
-
-				if is_last:	next_state = arch_state_end
-				else:       next_state = { prefix+n: tpe for n, tpe in subspec.state.items() }
-
-
-
-				current_state = next_state
-
-			# we end with the final sub arch state
-			assert current_state == arch_state_end
+			# connect output state
+			for name, sym in arch_state_end.items():
+				check.assume_always(Equals(sym, current_state[name]))
 
 
 	@staticmethod
 	def map_symbols(symbols: Iterable[Tuple[str, SmtSort]], fun: Callable):
 		return { Symbol(n,t): Symbol(fun(n), t) for n,t in symbols }
 
-	def apply_semantics(self, tran: Transaction, check: BoundedCheck, state: Dict[str, SmtSort] , prefix: str = ""):
+	def apply_semantics(self, tran: Transaction, check: BoundedCheck, state: Dict[str, Symbol], prefix: str = ""):
 		# the semantics operate on previous arch state and input args
 		if len(prefix) > 0:
 			mapping = self.map_symbols(chain(tran.args.items(), self.prob.spec.state.items()), lambda n: prefix + n)
@@ -126,8 +119,11 @@ class Verifier:
 
 	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: RtlModule, state: Dict[str, SmtSort], start_cycle: int, prefix: str):
 		# declare arguments for this particular transaction
-		args = { prefix + name: tpe for name, tpe in tran.args.items() }
+		args = self.make_symbols(tran.args, prefix)
 		self.declare_constants(check, args)
+
+		# declare architectural state input
+		self.declare_constants(check, self.make_symbols(state, prefix))
 
 		# calculate semantics of this transaction
 		self.apply_semantics(tran, check, state, prefix)
