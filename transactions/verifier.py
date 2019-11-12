@@ -183,17 +183,46 @@ class Verifier:
 			for subtran in trace[name]:
 				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
 
-	def generate_input_conditions(self, tran: Transaction, offset: int = 0):
+	def generate_input_conditions(self, tran: Transaction, submodule: RtlModule, check: BoundedCheck, offset: int = 0):
 		var_finder = FindVariableIntervals()
-		var2inputs = defaultdict(list)
+		# variable -> interval -> (cycle, signal_expr)
+		var2inputs: Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, SmtExpr]]]] = defaultdict(lambda: defaultdict(list))
+		# find constant and variable mapping on the protocol inputs
 		for ii, tt in enumerate(tran.proto.transitions):
 			for signal_name, expr in tt.inputs.items():
-				findings = var_finder.walk(expr)
-				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in findings:
+				sig = Symbol(submodule.io_prefix + signal_name, submodule.inputs[signal_name])
+				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in var_finder.walk(expr):
+					if signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width: sig_expr = sig
+					else: sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
 					if var.is_symbol():
-						var2inputs[var].append((ii+offset, (signal_name, signal_msb, signal_lsb), (var_msb, var_lsb)))
+						var2inputs[var][(var_msb, var_lsb)].append((ii+offset, sig_expr))
+					else:
+						assert var_lsb == 0 and var_msb+1 == var.get_type().width, f"Expect constants to be simplified!"
+						# check that the input has the correct constant value in cycle ii+offset
+						check.assert_at(ii+offset, Equals(sig_expr, var))
 
-		print(var2inputs)
+		# find protocol inputs that refer to the same bits in the transaction inputs
+		for var, refs in var2inputs.items():
+			# check that there are not overlapping intervals as they aren't supported yet
+			covered_bits = set()
+			for (msb, lsb) in refs.keys():
+				for bit in range(lsb, msb+1):
+					assert bit not in covered_bits, f"Overlapping intervals on {var}[{bit}]"
+					covered_bits.add(bit)
+			# generate conditions for each interval
+			for ((msb, lsb), mappings) in refs.items():
+				# if there is only a single mapping for this interval of var, then the value is unrestricted!
+				if len(mappings) <= 1: continue
+
+				# find (one of) the first references to this interval
+				mappings_sorted_by_cycle = sorted(mappings, key=lambda ii: ii[0])
+				start = mappings_sorted_by_cycle[0]
+				# we bind the start mapping to a constant and then check every other mapping against the constant
+				constant = Symbol(f"{var.symbol_name()}[{msb}:{lsb}]", BVType(msb-lsb+1))
+				check.constant(constant)
+				check.assume_at(start[0], Equals(constant, start[1]))
+				for cycle, expr in mappings_sorted_by_cycle[1:]:
+					check.assert_at(cycle, Equals(expr, constant))
 
 
 	def verify_transaction_trace(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
@@ -202,13 +231,19 @@ class Verifier:
 			assert len(traces) == 0, f"Did not expect a trace: {traces}"
 			return
 		self.verify_transaction_trace_format(tran, traces)
-		print("WARN: transaction traces are currently NOT verified! FIXME!")
-		# TODO: check that module reset is never active!
 
-		for instance, trace in  traces.items():
-			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in trace))
-			for ii, (start_cycle, tran) in enumerate(zip(offsets, trace)):
-				self.generate_input_conditions(tran, offset=start_cycle)
+		# TODO: embed check into transaction check
+		#       currently the assumptions on the toplevel module are not included, but they are needed in order to
+		#       prove this problem!
+		cycles = transaction_len(tran)
+		with BoundedCheck(f"transaction {tran.name}: subtrace is correct", self, cycles=cycles) as check:
+			for instance, trace in  traces.items():
+				offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in trace))
+				for ii, (start_cycle, tran) in enumerate(zip(offsets, trace)):
+					self.generate_input_conditions(tran, submodule=self.mod.submodules[instance], check=check, offset=start_cycle)
+				# TODO:  check our assumption that the submodule `instance` is never reset
+
+		print("WARN: transaction traces are currently NOT fully verified! FIXME!")
 
 
 	def verify_transaction_output(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
