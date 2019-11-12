@@ -1,20 +1,9 @@
 from __future__ import annotations
 import os
-from dataclasses import dataclass
-from typing import List,  Dict, Optional
-from .spec import SmtSort, RtlModule
-from pysmt.shortcuts import BOOL, BVType, ArrayType
+from typing import List,  Dict, Optional, Set
+from .spec import SmtSort, RtlModule, Reset, HighActiveReset, LowActiveReset
+from pysmt.shortcuts import BVType, ArrayType
 from .yosys import parse_verilog, parse_yosys_smt2, parse_yosys_btor, merge_smt2_and_btor, parse_ilang, expose_modules
-
-@dataclass
-class Reset:
-	name: str
-@dataclass
-class HighActiveReset(Reset):
-	pass
-@dataclass
-class LowActiveReset(Reset):
-	pass
 
 def to_signal_type(name, typ, nid, sym_name):
 	if typ[0] == 'bv':
@@ -102,3 +91,21 @@ class Module(RtlModule):
 		dd += ["Wires:"] + render_fields(self.wires) + [""]
 		return '\n'.join(dd)
 	def __repr__(self): return str(self)
+
+def find_pin(names: Set[str], candidates: List[str]) -> str:
+	names_lower = {nn.lower() for nn in names}
+	for name in candidates:
+		if name in names:
+			return name
+	for name in candidates:
+		if name.lower() in names:
+			return name
+	for name in candidates:
+		for pp in names:
+			if name in pp:
+				return pp
+	for name in candidates:
+		for pp in names_lower:
+			if name.lower() in pp:
+				return pp
+	raise RuntimeError(f"Failed ot find pin in {pins} (candidates: {candidates})")
