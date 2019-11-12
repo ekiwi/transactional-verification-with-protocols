@@ -198,8 +198,9 @@ class Verifier:
 			for signal_name, expr in tt.inputs.items():
 				sig = Symbol(module.io_prefix + signal_name, module.inputs[signal_name])
 				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in FindVariableIntervals.find(expr):
-					if signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width: sig_expr = sig
-					else: sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
+					is_full = signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width
+					if is_full: sig_expr = sig
+					else:       sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
 					if var.is_symbol():
 						var2inputs[var][(var_msb, var_lsb)].append((ii+offset, sig_expr))
 					else:
@@ -309,8 +310,15 @@ class FindVariableIntervals(DagWalker):
 	def bits(self, formula): return formula.get_type().width
 	def walk(self, formula, **kwargs):
 		res = super().walk(formula, **kwargs)
-		assert not isinstance(res, list), "TODO: deal with concats"
-		return [(self.bits(formula)-1, 0, res)]
+		if isinstance(res, list):
+			# fixup offsets of concatenation
+			res_rev = list(reversed(res))
+			widths = [ii[0] - ii[1] + 1 for ii in res_rev]
+			offsets = [0] + list(itertools.accumulate(widths))
+			final_res = [(ww - 1 + oo, oo, ii) for oo, ww, ii in zip(offsets, widths, res_rev)]
+			return final_res
+		else:
+			return [(self.bits(formula)-1, 0, res)]
 	def walk_bv_concat(self, formula, args, **kwargs):
 		return ((args[0] if isinstance(args[0], list) else [args[0]]) +
 		        (args[1] if isinstance(args[1], list) else [args[1]]))
