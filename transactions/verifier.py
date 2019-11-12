@@ -193,11 +193,11 @@ class Verifier:
 			for subtran in trace[name]:
 				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
 
-	def generate_inputs(self, tran: Transaction, submodule: RtlModule, check: BoundedCheck, offset: int = 0,
+	def generate_inputs(self, tran: Transaction, module: RtlModule, check: BoundedCheck, offset: int = 0,
 						prefix: str = "", assume_dont_assert_requirements: bool = False):
 
 		# reset should be inactive during a transaction
-		inactive_rst = self.get_inactive_reset(submodule)
+		inactive_rst = self.get_inactive_reset(module)
 		if inactive_rst is not None:
 			for ii in range(transaction_len(tran)):
 				if assume_dont_assert_requirements:
@@ -212,7 +212,7 @@ class Verifier:
 		# find constant and variable mapping on the protocol inputs
 		for ii, tt in enumerate(tran.proto.transitions):
 			for signal_name, expr in tt.inputs.items():
-				sig = Symbol(submodule.io_prefix + signal_name, submodule.inputs[signal_name])
+				sig = Symbol(module.io_prefix + signal_name, module.inputs[signal_name])
 				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in var_finder.walk(expr):
 					if signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width: sig_expr = sig
 					else: sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
@@ -287,7 +287,7 @@ class Verifier:
 			for instance, trace in  traces.items():
 				offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in trace))
 				for ii, (start_cycle, tran) in enumerate(zip(offsets, trace)):
-					self.generate_inputs(tran, submodule=self.mod.submodules[instance], check=check, offset=start_cycle)
+					self.generate_inputs(tran, module=self.mod.submodules[instance], check=check, offset=start_cycle)
 				# TODO:  check our assumption that the submodule `instance` is never reset
 
 		print("WARN: transaction traces are currently NOT fully verified! FIXME!")
