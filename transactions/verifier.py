@@ -23,6 +23,16 @@ class Verifier:
 		self.engine = engine
 		self.verbose = True
 
+	@staticmethod
+	def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
+		if module.reset is None: return None
+		rst = Symbol(module.reset.name, BVType(1))
+		if isinstance(module.reset, HighActiveReset):
+			return Equals(rst, BV(0, 1))
+		else:
+			assert isinstance(module.reset, LowActiveReset)
+			return Equals(rst, BV(1, 1))
+
 	def reset_active(self):
 		if self.mod.reset is not None:
 			rst = Symbol(self.mod.reset.name, BVType(1))
@@ -183,11 +193,21 @@ class Verifier:
 			for subtran in trace[name]:
 				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
 
-	def generate_inputs(self, tran: Transaction, submodule: RtlModule, check: BoundedCheck, offset: int = 0, prefix: str = "", assume_dont_assert_requirements: bool = False):
-		var_finder = FindVariableIntervals()
+	def generate_inputs(self, tran: Transaction, submodule: RtlModule, check: BoundedCheck, offset: int = 0,
+						prefix: str = "", assume_dont_assert_requirements: bool = False):
+
+		# reset should be inactive during a transaction
+		inactive_rst = self.get_inactive_reset(submodule)
+		if inactive_rst is not None:
+			for ii in range(transaction_len(tran)):
+				if assume_dont_assert_requirements:
+					check.assume_at(ii+offset, inactive_rst)
+				else:
+					check.assert_at(ii + offset, inactive_rst)
 
 		# variable -> interval -> (cycle, signal_expr)
 		var2inputs: Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, SmtExpr]]]] = defaultdict(lambda: defaultdict(list))
+		var_finder = FindVariableIntervals()
 
 		# find constant and variable mapping on the protocol inputs
 		for ii, tt in enumerate(tran.proto.transitions):
