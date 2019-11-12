@@ -10,6 +10,7 @@ from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
 from typing import Iterable, Tuple, Union
 from itertools import chain
+from collections import defaultdict
 
 def transaction_len(tran: Transaction):
 	return len(tran.proto.transitions)
@@ -182,14 +183,32 @@ class Verifier:
 			for subtran in trace[name]:
 				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
 
-	def verify_transaction_trace(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+	def generate_input_conditions(self, tran: Transaction, offset: int = 0):
+		var_finder = FindVariableIntervals()
+		var2inputs = defaultdict(list)
+		for ii, tt in enumerate(tran.proto.transitions):
+			for signal_name, expr in tt.inputs.items():
+				findings = var_finder.walk(expr)
+				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in findings:
+					if var.is_symbol():
+						var2inputs[var].append((ii+offset, (signal_name, signal_msb, signal_lsb), (var_msb, var_lsb)))
+
+		print(var2inputs)
+
+
+	def verify_transaction_trace(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
 		""" ensures that the transaction trace selected is the only feasible one """
 		if len(self.prob.submodules) == 0:
-			assert len(trace) == 0, f"Did not expect a trace: {trace}"
+			assert len(traces) == 0, f"Did not expect a trace: {traces}"
 			return
-		self.verify_transaction_trace_format(tran, trace)
+		self.verify_transaction_trace_format(tran, traces)
 		print("WARN: transaction traces are currently NOT verified! FIXME!")
 		# TODO: check that module reset is never active!
+
+		for instance, trace in  traces.items():
+			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in trace))
+			for ii, (start_cycle, tran) in enumerate(zip(offsets, trace)):
+				self.generate_input_conditions(tran, offset=start_cycle)
 
 
 	def verify_transaction_output(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
@@ -234,3 +253,29 @@ class Verifier:
 			self.verify_transaction_trace(tran, trace)
 			self.verify_transaction_output(tran, trace)
 			self.verify_inductive_step(tran, trace)
+
+from pysmt.walkers import DagWalker
+
+class FindVariableIntervals(DagWalker):
+	def __init__(self, env=None):
+		super().__init__(env)
+	def bits(self, formula): return formula.get_type().width
+	def walk(self, formula, **kwargs):
+		res = super().walk(formula, **kwargs)
+		assert not isinstance(res, list), "TODO: deal with concats"
+		return [(self.bits(formula)-1, 0, res)]
+	def walk_bv_concat(self, formula, args, **kwargs):
+		return ((args[0] if isinstance(args[0], list) else [args[0]]) +
+		        (args[1] if isinstance(args[1], list) else [args[1]]))
+	def walk_bv_extract(self, formula, args, **kwargs):
+		lo = formula.bv_extract_start()
+		hi = formula.bv_extract_end()
+		assert len(args) == 1
+		old_hi, old_lo, name = args[0]
+		a = (hi + old_lo, lo + old_lo, name)
+		assert a[0] - a[1] == self.bits(formula) - 1
+		return a
+	def walk_array_select(self, formula, args, **kwargs):
+		raise NotImplementedError("TODO: support array select")
+	def walk_bv_constant(self, formula, **kwargs): return (self.bits(formula)-1, 0, formula)
+	def walk_symbol(self, formula, **kwargs): return (self.bits(formula)-1, 0, formula)

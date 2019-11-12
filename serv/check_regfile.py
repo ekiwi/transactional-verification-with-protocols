@@ -10,7 +10,7 @@ regs = Symbol('regs', ArrayType(BVType(5), BVType(32)))
 memory = Symbol('memory', ArrayType(BVType(9), BVType(2)))
 rs1_addr = Symbol('rs1_addr', BVType(5))
 rs2_addr = Symbol('rs2_addr', BVType(5))
-rd_enable = Symbol('rd_enable')
+rd_enable = Symbol('rd_enable', BVType(1))
 rd_addr = Symbol('rd_addr', BVType(5))
 rd_data = Symbol('rd_data', BVType(32))
 rs1_data = Symbol('rs1_data', BVType(32))
@@ -24,7 +24,7 @@ protocol = Protocol(
 	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': BV(0,1),
 						'i_rs1_addr': rs1_addr, 'i_rs2_addr': rs2_addr},
 				outputs={'o_ready': BV(1,1)})] +
-	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': Ite(rd_enable, BV(1,1), BV(0,1)),
+	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': rd_enable,
 						'i_rs1_addr': rs1_addr, 'i_rs2_addr': rs2_addr, 'i_rd_addr': rd_addr,
 						'i_rd': BVExtract(rd_data, ii, ii)},
 				outputs={'o_ready': BV(0,1),
@@ -35,7 +35,7 @@ protocol = Protocol(
 
 
 is_zero = lambda expr: Equals(expr, BV(0, expr.bv_width()))
-do_write = And(rd_enable, Not(Equals(rd_addr, BV(0, 5))))
+do_write = And(Equals(rd_enable, BV(1,1)), Not(Equals(rd_addr, BV(0, 5))))
 semantics = {
 	'rs1_data': Ite(is_zero(rs1_addr), BV(0, 32), Select(regs, rs1_addr)),
 	'rs2_data': Ite(is_zero(rs2_addr), BV(0, 32), Select(regs, rs2_addr)),
@@ -51,7 +51,7 @@ regfile_spec = Spec(
 		)])),
 		Transaction("RW", proto=protocol, semantics=semantics,
 					args={'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_addr': BVType(5),
-						  'rd_enable': BOOL, 'rd_data': BVType(32)},
+						  'rd_enable': BVType(1), 'rd_data': BVType(32)},
 					ret_args={'rs1_data': BVType(32), 'rs2_data': BVType(32)}
 		)
 	]
