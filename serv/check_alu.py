@@ -96,7 +96,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	mod = Module.load('serv_alu', src, reset=HighActiveReset('i_rst'), ignore_wires=False)
+	mod = Module.load('serv_alu', src, ignore_wires=False)
 	prob = VerificationProblem(alu_spec, "serv_alu")
 	print(f"Trying to proof {mod.name}")
 	#print(mod)

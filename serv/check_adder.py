@@ -29,7 +29,7 @@ def main() -> int:
 	version = require_yosys()
 	print(f"Using yosys {version}")
 
-	mod = Module.load('ser_add', [add_v], reset=HighActiveReset('rst'))
+	mod = Module.load('ser_add', [add_v])
 	prob = VerificationProblem(spec=AdderSpec(32), implementation='ser_add')
 
 	print(f"Trying to proof {mod.name}")

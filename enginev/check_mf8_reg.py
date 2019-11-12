@@ -51,7 +51,7 @@ class RegfileSpec(Spec):
 		super().__init__(arch_state={'regs': regs, 'z': z}, mapping=mapping, transactions=transactions, invariances=inv)
 
 def main() -> int:
-	mod = Module.load('mf8_reg', sources, reset=LowActiveReset('Reset'))
+	mod = Module.load('mf8_reg', sources, high_active_reset=False)
 	spec = RegfileSpec()
 
 	print(f"Trying to proof {mod.name}")

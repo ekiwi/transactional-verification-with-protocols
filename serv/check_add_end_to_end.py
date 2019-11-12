@@ -101,7 +101,6 @@ def main() -> int:
 
 	#
 	mod = Module.load(prob.implementation, src,
-					  reset=HighActiveReset('i_rst'),
 					  ignore_wires=False,
 					  blackbox=list(prob.submodules.keys()))
 	print(f"Trying to proof {mod.name}")
