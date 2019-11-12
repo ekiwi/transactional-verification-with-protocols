@@ -33,15 +33,6 @@ class Verifier:
 			assert isinstance(module.reset, LowActiveReset)
 			return Equals(rst, BV(1, 1))
 
-	def reset_active(self):
-		if self.mod.reset is not None:
-			rst = Symbol(self.mod.reset.name, BVType(1))
-			if isinstance(self.mod.reset, HighActiveReset):
-				return Equals(rst, BV(1,1))
-			else:
-				assert isinstance(self.mod.reset, LowActiveReset)
-				return Equals(rst, BV(0,1))
-
 	@staticmethod
 	def declare_constants(check: BoundedCheck, symbols: Dict[str, Symbol]):
 		for sym in symbols.values(): check.constant(sym)
@@ -54,7 +45,7 @@ class Verifier:
 	def map_symbols(symbols: Dict[str, Symbol]) -> Dict[Symbol, Symbol]:
 		return {Symbol(name, sym.symbol_type()): sym for name, sym in symbols.items()}
 
-	def do_transaction(self, tran: Transaction, check: BoundedCheck, trace: Dict[str, List[Transaction]], no_asserts=False):
+	def do_transaction(self, tran: Transaction, check: BoundedCheck, traces: Dict[str, List[Transaction]]):
 		""" (symbolically) execute a transaction of the module being verified  """
 		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
 
@@ -62,49 +53,38 @@ class Verifier:
 		for inv in self.prob.invariances:
 			check.assume_at(0, inv)
 
-		# assume reset is inactive during the transaction
-		check.assume_always(Not(self.reset_active()))
-
-		# declare transaction args
-		self.declare_constants(check, self.make_symbols(tran.args))
-
-		# apply cycle behavior
-		for ii, tt in enumerate(tran.proto.transitions):
-			# apply inputs
-			for signal_name, expr in tt.inputs.items():
-				check.assume_at(ii, Equals(Symbol(signal_name, self.mod.inputs[signal_name]), expr))
-			# check outputs
-			if not no_asserts:
-				for signal_name, expr in tt.outputs.items():
-					check.assert_at(ii, Equals(Symbol(signal_name, self.mod.outputs[signal_name]), expr))
+		# assume the environment applies the correct inputs to the toplevel module
+		Verifier.generate_inputs(tran, self.mod, check, assume_dont_assert_requirements=True)
 
 		# apply cycle behavior of submodules
 		sub_arch_state_n = {}
 		for instance, subspec in self.prob.submodules.items():
-			subtrace = trace[instance]
+			subtrace = traces[instance]
 			submodule = self.mod.submodules[instance]
 
 			# declare architectural state at the beginning and at the end of the toplevel transaction
-			arch_state_begin = self.make_symbols(subspec.state, instance + ".")
-			self.declare_constants(check, arch_state_begin)
-			arch_state_end = self.make_symbols(subspec.state, instance + ".", "_n")
-			self.declare_constants(check, arch_state_end)
+			arch_state_begin = Verifier.make_symbols(subspec.state, instance + ".")
+			Verifier.declare_constants(check, arch_state_begin)
+			arch_state_end = Verifier.make_symbols(subspec.state, instance + ".", "_n")
+			Verifier.declare_constants(check, arch_state_end)
 			sub_arch_state_n = {**sub_arch_state_n, **{instance + "." + name: sym for name, sym in arch_state_end.items()}}
 
 			# start with start state
 			current_state = arch_state_begin
 
 			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
-			for ii, (start_cycle, subtran) in enumerate(zip(offsets, subtrace)):
-				# execute subtransaction
-				prefix = f"{instance}.{subtran.name}.{start_cycle}."
-				self.model_submodule_transaction(subtran, check, submodule, subspec.state, start_cycle, prefix)
-
+			for ii, (offset, subtran) in enumerate(zip(offsets, subtrace)):
+				prefix = f"{instance}.{subtran.name}.{offset}."
+				# check that toplevel module applies valid inputs to the submodule
+				Verifier.generate_inputs(subtran, submodule, check, offset, prefix, assume_dont_assert_requirements=False)
+				# assume that the submodule generates the correct outputs (this is ok because we assume no combinatorial loops)
+				Verifier.generate_outputs(subtran, submodule, subspec.state, check, offset, prefix,
+										  assume_dont_assert_requirements=True)
 				# connect input state
 				for name, sym in current_state.items():
 					check.assume_always(Equals(Symbol(prefix+name, sym.symbol_type()), sym))
 				# remember output state
-				current_state = self.make_symbols(subspec.state, prefix, "_n")
+				current_state = Verifier.make_symbols(subspec.state, prefix, "_n")
 
 			# connect output state
 			for name, sym in arch_state_end.items():
@@ -131,40 +111,15 @@ class Verifier:
 			next_state = tran.semantics.get(state_name, prev_state)
 			check.function(Symbol(prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
 
-	def model_submodule_transaction(self, tran: Transaction, check: BoundedCheck, submodule: RtlModule, state: Dict[str, SmtSort], start_cycle: int, prefix: str):
-		# declare arguments for this particular transaction
-		args = self.make_symbols(tran.args, prefix)
-		self.declare_constants(check, args)
-
-		# declare architectural state input
-		self.declare_constants(check, self.make_symbols(state, prefix))
-
-		# calculate semantics of this transaction
-		self.apply_semantics(tran, check, state, prefix)
-
-		# we need to rename references to the transaction arguments in the protocol mapping
-		ret_args = self.make_symbols(tran.ret_args, prefix)
-		mappings = self.map_symbols(merge_indices(args, ret_args))
-
-		for ii, tt in enumerate(tran.proto.transitions):
-			# connect inputs
-			for signal_name, expr in tt.inputs.items():
-				sig = Symbol(submodule.io_prefix + signal_name, submodule.inputs[signal_name])
-				check.assume_at(start_cycle + ii, Equals(sig, substitute(expr, mappings)))
-			# connect outputs
-			for signal_name, expr in tt.outputs.items():
-				sig = Symbol(submodule.io_prefix + signal_name, submodule.outputs[signal_name])
-				check.assume_at(start_cycle + ii, Equals(sig, substitute(expr, mappings)))
-
-		return start_cycle + transaction_len(tran)
-
-
 	def verify_inductive_base_case(self):
 		""" prove that the invariances hold after reset """
+		if len(self.prob.invariances) == 0: return
+		reset_active = Not(Verifier.get_inactive_reset(self.mod))
+		assert reset_active is not None, f"Cannot prove any invariances if there is not reset. ({self.mod.name})"
 		with BoundedCheck(f"invariances on state in {self.prob.implementation} hold after reset ", self, cycles=1) as check:
 			# we assume that the reset comes after uploading the bit stream which initializes the registers + memory
 			check.initialize_state()
-			check.assume_at(0, self.reset_active())
+			check.assume_at(0, reset_active)
 			# all invariances should hold after reset
 			for ii in self.prob.invariances:
 				check.assert_at(1, ii)
@@ -201,7 +156,6 @@ class Verifier:
 		""" generates output assumptions/assertions on module for offset..transaction_len(tran)+offset
 			assumption: input args have been declared
 		"""
-		args = Verifier.make_symbols(tran.args, prefix)
 
 		# declare architectural state input
 		Verifier.declare_constants(check, Verifier.make_symbols(state, prefix))
@@ -210,8 +164,7 @@ class Verifier:
 		Verifier.apply_semantics(tran, check, state, prefix)
 
 		# we may need to rename references to the transaction arguments in the protocol mapping
-		ret_args = Verifier.make_symbols(tran.ret_args, prefix)
-		mappings = Verifier.map_symbols(merge_indices(args, ret_args))
+		mappings = Verifier.map_symbols(Verifier.make_symbols(tran.ret_args, prefix))
 
 		for ii, tt in enumerate(tran.proto.transitions):
 			# connect outputs
@@ -302,45 +255,19 @@ class Verifier:
 					else:
 						check.assert_at(cycle, Equals(expr, constant))
 
-
-	def verify_transaction_trace(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
-		""" ensures that the transaction trace selected is the only feasible one """
-		if len(self.prob.submodules) == 0:
-			assert len(traces) == 0, f"Did not expect a trace: {traces}"
-			return
-		self.verify_transaction_trace_format(tran, traces)
-
-		# TODO: embed check into transaction check
-		#       currently the assumptions on the toplevel module are not included, but they are needed in order to
-		#       prove this problem!
-		cycles = transaction_len(tran)
-		with BoundedCheck(f"transaction {tran.name}: subtrace is correct", self, cycles=cycles) as check:
-			for instance, trace in  traces.items():
-				offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in trace))
-				for ii, (start_cycle, tran) in enumerate(zip(offsets, trace)):
-					self.generate_inputs(tran, module=self.mod.submodules[instance], check=check, offset=start_cycle)
-				# TODO:  check our assumption that the submodule `instance` is never reset
-
-		print("WARN: transaction traces are currently NOT fully verified! FIXME!")
-
-
-	def verify_transaction_output(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
-		""" checks that the transaction output is correct """
+	def verify_transaction(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
+		""" checks that the transaction output and the input to subtransactions is correct """
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
-			subarch_n = self.do_transaction(tran=tran,trace=trace, check=check)
+			subarch_n = self.do_transaction(tran=tran,traces=traces, check=check)
 
-			# declare architectural state input
-			for state_name, state_tpe in self.prob.spec.state.items():
-				check.constant(Symbol(state_name, state_tpe))
+			# verify that the outputs are correct
+			self.generate_outputs(tran, self.mod, self.prob.spec.state, check, assume_dont_assert_requirements=False)
 
 			# connect initial circuit and arch state
 			for mapping in self.prob.mappings:
 				check.assume_at(0, Equals(mapping.arch, mapping.impl))
-
-			# semantics as next state function for spec state and outputs
-			self.apply_semantics(tran, check, self.prob.spec.state)
 
 			# verify arch states after transaction
 			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
@@ -350,11 +277,12 @@ class Verifier:
 				impl = substitute(mapping.impl, subarch_next)
 				check.assert_at(cycles, Equals(arch, impl))
 
-	def verify_inductive_step(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+	def verify_inductive_step(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
 		""" checks that the the invariants are inductive over transaction tran """
+		if len(self.prob.invariances) == 0: return
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
-			self.do_transaction(tran=tran, check=check, trace=trace, no_asserts=True)
+			self.do_transaction(tran=tran, check=check, traces=traces)
 			# all invariances should hold after the transaction
 			for ii in self.prob.invariances:
 				check.assert_at(cycles, ii)
@@ -362,10 +290,10 @@ class Verifier:
 	def proof_all(self):
 		self.verify_inductive_base_case()
 		for tran in self.prob.spec.transactions:
-			trace = self.find_transaction_trace(tran)
-			self.verify_transaction_trace(tran, trace)
-			self.verify_transaction_output(tran, trace)
-			self.verify_inductive_step(tran, trace)
+			traces = self.find_transaction_trace(tran)
+			self.verify_transaction_trace_format(tran, traces)
+			self.verify_transaction(tran, traces)
+			self.verify_inductive_step(tran, traces)
 
 from pysmt.walkers import DagWalker
 
