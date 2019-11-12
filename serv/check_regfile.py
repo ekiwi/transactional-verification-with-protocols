@@ -79,7 +79,7 @@ def main() -> int:
 
 	prob = VerificationProblem(spec=regfile_spec, implementation='serv_regfile',
 							   invariances=invariances, mappings=mappings)
-	mod = Module.load('serv_regfile', [regfile_v], reset=HighActiveReset('i_rst'))
+	mod = Module.load('serv_regfile', [regfile_v])
 
 	#ee = SMT2ProofEngine(outdir='../smt2')
 	ee = MCProofEngine(outdir="../btor2")
