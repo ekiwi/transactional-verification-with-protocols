@@ -240,12 +240,8 @@ class Verifier:
 				start = mappings_sorted_by_cycle[0]
 
 				# we bind the start mapping to a constant and then check every other mapping against the constant
-				if full_range:
-					constant = var_sym
-				else:
-					constant = Symbol(f"{var.symbol_name()}[{msb}:{lsb}]", BVType(msb-lsb+1))
-					check.constant(constant)
-					check.assume_always(Equals(constant, BVExtract(var_sym, start=lsb, end=msb)))
+				if full_range:	constant = var_sym
+				else:			constant = BVExtract(var_sym, start=lsb, end=msb)
 
 				# map the constant to the input variable symbol
 				check.assume_at(start[0], Equals(constant, start[1]))
