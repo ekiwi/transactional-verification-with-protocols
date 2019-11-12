@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+from __future__ import annotations
 import itertools
 from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
@@ -207,13 +207,12 @@ class Verifier:
 
 		# variable -> interval -> (cycle, signal_expr)
 		var2inputs: Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, SmtExpr]]]] = defaultdict(lambda: defaultdict(list))
-		var_finder = FindVariableIntervals()
 
 		# find constant and variable mapping on the protocol inputs
 		for ii, tt in enumerate(tran.proto.transitions):
 			for signal_name, expr in tt.inputs.items():
 				sig = Symbol(module.io_prefix + signal_name, module.inputs[signal_name])
-				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in var_finder.walk(expr):
+				for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in FindVariableIntervals.find(expr):
 					if signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width: sig_expr = sig
 					else: sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
 					if var.is_symbol():
@@ -339,6 +338,12 @@ class Verifier:
 from pysmt.walkers import DagWalker
 
 class FindVariableIntervals(DagWalker):
+	_instance: Optional[FindVariableIntervals] = None
+	@staticmethod
+	def find(expr: SmtExpr):
+		if FindVariableIntervals._instance is None:
+			FindVariableIntervals._instance = FindVariableIntervals()
+		return FindVariableIntervals._instance.walk(expr)
 	def __init__(self, env=None):
 		super().__init__(env)
 	def bits(self, formula): return formula.get_type().width
