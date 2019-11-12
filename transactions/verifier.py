@@ -112,12 +112,13 @@ class Verifier:
 
 		return sub_arch_state_n
 
-	def apply_semantics(self, tran: Transaction, check: BoundedCheck, state: Dict[str, Symbol], prefix: str = ""):
+	@staticmethod
+	def apply_semantics(tran: Transaction, check: BoundedCheck, state: Dict[str, Symbol], prefix: str = ""):
 		# the semantics operate on previous arch state and input args
 		if len(prefix) > 0:
-			args = self.make_symbols(tran.args, prefix)
-			state_syms = self.make_symbols(state, prefix)
-			mapping = self.map_symbols(merge_indices(args, state_syms))
+			args = Verifier.make_symbols(tran.args, prefix)
+			state_syms = Verifier.make_symbols(state, prefix)
+			mapping = Verifier.map_symbols(merge_indices(args, state_syms))
 		else:
 			mapping = {}
 		# semantics as next state function for spec state and outputs
@@ -193,11 +194,42 @@ class Verifier:
 			for subtran in trace[name]:
 				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
 
-	def generate_inputs(self, tran: Transaction, module: RtlModule, check: BoundedCheck, offset: int = 0,
+	@staticmethod
+	def generate_outputs(tran: Transaction, module: RtlModule, state: Dict[str, SmtSort], check: BoundedCheck,
+						 offset: int = 0,
+						 prefix: str = "", assume_dont_assert_requirements: bool = True):
+		""" generates output assumptions/assertions on module for offset..transaction_len(tran)+offset
+			assumption: input args have been declared
+		"""
+		args = Verifier.make_symbols(tran.args, prefix)
+
+		# declare architectural state input
+		Verifier.declare_constants(check, Verifier.make_symbols(state, prefix))
+
+		# calculate semantics of this transaction
+		Verifier.apply_semantics(tran, check, state, prefix)
+
+		# we may need to rename references to the transaction arguments in the protocol mapping
+		ret_args = Verifier.make_symbols(tran.ret_args, prefix)
+		mappings = Verifier.map_symbols(merge_indices(args, ret_args))
+
+		for ii, tt in enumerate(tran.proto.transitions):
+			# connect outputs
+			for signal_name, expr in tt.outputs.items():
+				sig = Symbol(module.io_prefix + signal_name, module.outputs[signal_name])
+				expr = Equals(sig, substitute(expr, mappings))
+				if assume_dont_assert_requirements:
+					check.assume_at(ii + offset, expr)
+				else:
+					check.assert_at(ii + offset, expr)
+
+	@staticmethod
+	def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, offset: int = 0,
 						prefix: str = "", assume_dont_assert_requirements: bool = False):
+		""" generates input assumptions/assertions on module for offset..transaction_len(tran)+offset """
 
 		# reset should be inactive during a transaction
-		inactive_rst = self.get_inactive_reset(module)
+		inactive_rst = Verifier.get_inactive_reset(module)
 		if inactive_rst is not None:
 			for ii in range(transaction_len(tran)):
 				if assume_dont_assert_requirements:
