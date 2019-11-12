@@ -3,7 +3,7 @@
 
 import subprocess, re, os, tempfile, shutil
 
-from .module import Module
+from .module import Module, find_pin
 from .bounded import Model
 
 def require_verilator() -> str:
@@ -38,14 +38,7 @@ static void set(const std::string& name, const std::string& num_str) {{
 def find_clock(top: Module):
 	inputs = set(top.inputs.keys())
 	candidates =  ["clock", "clk", "Clk", "Clock"]
-	for name in candidates:
-		if name in inputs:
-			return name
-	for name in candidates:
-		for ii in inputs:
-			if name in ii:
-				return ii
-	raise RuntimeError(f"Failed ot find clock of {top.name} in {inputs} (candidates: {candidates})")
+	return find_pin(inputs, candidates)
 
 def to_verilator_name(top: Module, name) -> str:
 	parts = [top.name] + name.split('.')

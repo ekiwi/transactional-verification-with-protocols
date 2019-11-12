@@ -62,12 +62,20 @@ class VerificationProblem:
 	mappings : List[StateMapping] = field(default_factory=list)
 
 @dataclass
+class Reset:
+	name: str
+@dataclass
+class HighActiveReset(Reset): pass
+@dataclass
+class LowActiveReset(Reset): pass
+@dataclass
 class RtlModule:
 	name: str
 	inputs: Dict[str, SmtSort]
 	outputs: Dict[str, SmtSort]
 	state: Dict[str, SmtSort]
 	submodules: Dict[str, RtlModule]
+	reset: Optional[Reset]
 	# the string that needs to be prepended to io names to access this io
 	# (this is a detail necessary for our "expose submodule" implementation)
 	io_prefix: str = ""
