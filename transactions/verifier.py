@@ -229,8 +229,21 @@ class Verifier:
 			for ii in self.prob.invariances:
 				check.assert_at(1, ii)
 
-	def find_transaction_trace(self, tran: Transaction) -> Dict[str, List[Transaction]]:
+	def check_transacion_trace_candidate(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+		""" returns True if the trace is the only feasible trace, i.e. if there is no other feasible trace """
+		return False
+
+
+	def find_transaction_trace(self, tran: Transaction, subspecs: Dict[str, Spec]) -> Dict[str, List[Transaction]]:
 		if len(self.prob.submodules) == 0: return {}
+
+		# this algorithm requires no backtracking since transactions are uniquely identified by their input requirements
+		traces  = { instance: [] for instance in subspecs.keys() }
+		choices = { instance: spec.transactions for instance, spec in subspecs.items() }
+
+
+
+
 		# TODO: actually discover traces
 		assert set(self.prob.submodules.keys()) == {'regfile', 'alu'}, f"{list(self.prob.submodules.keys())}"
 		rr = {tt.name: tt for tt in self.prob.submodules['regfile'].transactions}
