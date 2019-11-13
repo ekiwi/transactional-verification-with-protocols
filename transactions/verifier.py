@@ -160,6 +160,54 @@ def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, o
 				else:
 					check.assert_at(cycle, Equals(expr, constant))
 
+
+def do_transaction(tran: Transaction, check: BoundedCheck, traces: Dict[str, List[Transaction]],
+				   invariances: List[SmtExpr], mod: RtlModule, subspecs: Dict[str, Spec]):
+	""" (symbolically) execute a transaction of the module being verified  """
+	#assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
+
+	# assume invariances hold at the beginning of the transaction
+	for inv in invariances:
+		check.assume_at(0, inv)
+
+	# assume the environment applies the correct inputs to the toplevel module
+	generate_inputs(tran, mod, check, assume_dont_assert_requirements=True)
+
+	# apply cycle behavior of submodules
+	sub_arch_state_n = {}
+	for instance, subspec in subspecs.items():
+		subtrace = traces[instance]
+		submodule = mod.submodules[instance]
+
+		# declare architectural state at the beginning and at the end of the toplevel transaction
+		arch_state_begin = make_symbols(subspec.state, instance + ".")
+		declare_constants(check, arch_state_begin)
+		arch_state_end = make_symbols(subspec.state, instance + ".", "_n")
+		declare_constants(check, arch_state_end)
+		sub_arch_state_n = {**sub_arch_state_n, **{instance + "." + name: sym for name, sym in arch_state_end.items()}}
+
+		# start with start state
+		current_state = arch_state_begin
+
+		offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
+		for ii, (offset, subtran) in enumerate(zip(offsets, subtrace)):
+			prefix = f"{instance}.{subtran.name}.{offset}."
+			# check that toplevel module applies valid inputs to the submodule
+			generate_inputs(subtran, submodule, check, offset, prefix, assume_dont_assert_requirements=False)
+			# assume that the submodule generates the correct outputs (this is ok because we assume no combinatorial loops)
+			generate_outputs(subtran, submodule, subspec.state, check, offset, prefix, assume_dont_assert_requirements=True)
+			# connect input state
+			for name, sym in current_state.items():
+				check.assume_always(Equals(Symbol(prefix+name, sym.symbol_type()), sym))
+			# remember output state
+			current_state = make_symbols(subspec.state, prefix, "_n")
+
+		# connect output state
+		for name, sym in arch_state_end.items():
+			check.assume_always(Equals(sym, current_state[name]))
+
+	return sub_arch_state_n
+
 class Verifier:
 	def __init__(self, mod: Module, prob: VerificationProblem, engine):
 		check_verification_problem(prob, mod)
@@ -167,52 +215,6 @@ class Verifier:
 		self.mod = mod
 		self.engine = engine
 		self.verbose = True
-
-	def do_transaction(self, tran: Transaction, check: BoundedCheck, traces: Dict[str, List[Transaction]]):
-		""" (symbolically) execute a transaction of the module being verified  """
-		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
-
-		# assume invariances hold at the beginning of the transaction
-		for inv in self.prob.invariances:
-			check.assume_at(0, inv)
-
-		# assume the environment applies the correct inputs to the toplevel module
-		generate_inputs(tran, self.mod, check, assume_dont_assert_requirements=True)
-
-		# apply cycle behavior of submodules
-		sub_arch_state_n = {}
-		for instance, subspec in self.prob.submodules.items():
-			subtrace = traces[instance]
-			submodule = self.mod.submodules[instance]
-
-			# declare architectural state at the beginning and at the end of the toplevel transaction
-			arch_state_begin = make_symbols(subspec.state, instance + ".")
-			declare_constants(check, arch_state_begin)
-			arch_state_end = make_symbols(subspec.state, instance + ".", "_n")
-			declare_constants(check, arch_state_end)
-			sub_arch_state_n = {**sub_arch_state_n, **{instance + "." + name: sym for name, sym in arch_state_end.items()}}
-
-			# start with start state
-			current_state = arch_state_begin
-
-			offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
-			for ii, (offset, subtran) in enumerate(zip(offsets, subtrace)):
-				prefix = f"{instance}.{subtran.name}.{offset}."
-				# check that toplevel module applies valid inputs to the submodule
-				generate_inputs(subtran, submodule, check, offset, prefix, assume_dont_assert_requirements=False)
-				# assume that the submodule generates the correct outputs (this is ok because we assume no combinatorial loops)
-				generate_outputs(subtran, submodule, subspec.state, check, offset, prefix, assume_dont_assert_requirements=True)
-				# connect input state
-				for name, sym in current_state.items():
-					check.assume_always(Equals(Symbol(prefix+name, sym.symbol_type()), sym))
-				# remember output state
-				current_state = make_symbols(subspec.state, prefix, "_n")
-
-			# connect output state
-			for name, sym in arch_state_end.items():
-				check.assume_always(Equals(sym, current_state[name]))
-
-		return sub_arch_state_n
 
 	def verify_inductive_base_case(self):
 		""" prove that the invariances hold after reset """
@@ -257,7 +259,8 @@ class Verifier:
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
 			# instantiate unrolled transaction
-			subarch_n = self.do_transaction(tran=tran,traces=traces, check=check)
+			subarch_n = do_transaction(tran=tran,traces=traces, check=check, invariances=self.prob.invariances,
+			                           mod=self.mod, subspecs=self.prob.submodules)
 
 			# verify that the outputs are correct
 			generate_outputs(tran, self.mod, self.prob.spec.state, check, assume_dont_assert_requirements=False)
@@ -279,7 +282,8 @@ class Verifier:
 		if len(self.prob.invariances) == 0: return
 		cycles = transaction_len(tran)
 		with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
-			self.do_transaction(tran=tran, check=check, traces=traces)
+			do_transaction(tran=tran, check=check, traces=traces, invariances=self.prob.invariances,
+			               mod=self.mod, subspecs=self.prob.submodules)
 			# all invariances should hold after the transaction
 			for ii in self.prob.invariances:
 				check.assert_at(cycles, ii)
