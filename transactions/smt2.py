@@ -12,6 +12,8 @@ import time
 from .utils import *
 from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model, AssumptionFailure
 from .module import Module
+from typing import Tuple, List
+
 
 class SMT2ProofEngine:
 	def __init__(self, outdir=None):
@@ -109,19 +111,19 @@ class SMT2ProofEngine:
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
 		else:                                  filename = None
-		valid, solver_time, assert_ii = solver.solve(filename=filename, vc=assertion_symbols, verify_assumptions=verify_assumptions)
+		valid, solver_times, assert_ii = solver.solve(filename=filename, vc=assertion_symbols, verify_assumptions=verify_assumptions)
 
 		total_time = time.time() - start
 
 		if valid:
-			return CheckSuccess(solver_time, total_time)
+			return CheckSuccess(sum(solver_times), total_time)
 		else:
 			if verify_assumptions and assert_ii == -2:
-				return AssumptionFailure(solver_time, total_time)
+				return AssumptionFailure(sum(solver_times), total_time)
 			cycle = assert_to_cycle[assert_ii]
 			assert_expr = assert_to_expr[assert_ii]
 			model = self._generate_model(mod.name, assertion_symbols, assert_ii, cycle, filename, mappings, solver)
-			return CheckFailure(solver_time, total_time, cycle, assert_ii, assert_expr, model)
+			return CheckFailure(sum(solver_times), total_time, cycle, assert_ii, assert_expr, model, solver_times[0])
 
 	def _generate_model(self, mod_name, assertion_symbols, assert_ii, cycle, filename, mappings, solver) -> Model:
 		ff = os.path.splitext(filename)[0] + f"_b{assert_ii}_model.smt2"
@@ -213,10 +215,10 @@ class Solver:
 		# if there is no satisfying assignment, then the assumptions are contradictory
 		return stdout == sat
 
-	def solve(self, vc, filename=None, verify_assumptions=False):
+	def solve(self, vc, filename=None, verify_assumptions=False) -> Tuple[bool, List[float], int]:
 		# if there is no vc, the check always passes
 		if len(vc) == 0:
-			return True, 0.0, -1
+			return True, [0.0], -1
 
 		filename = default(filename, tempfile.mkstemp()[1])
 
@@ -224,7 +226,7 @@ class Solver:
 			sat_time = []
 			success = self._verify_assumptions(filename=filename, sat_time=sat_time)
 			if not success:
-				return success, sum(sat_time), -2
+				return success, sat_time, -2
 
 		sat_time = []
 		success = self._check_vc_is_unsat(vc, filename=filename, sat_time=sat_time)
@@ -243,7 +245,7 @@ class Solver:
 				else:       good = ii
 			bad_prop = fail
 
-		return success, sum(sat_time), bad_prop
+		return success, sat_time, bad_prop
 
 	def get_model(self, vc: list, cycle: int, reads: list, filename):
 		""" call this after a failing solver call  and only hand it the vc you are interested in """

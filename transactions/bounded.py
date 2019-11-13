@@ -24,6 +24,7 @@ class CheckFailure(CheckResult):
 	assert_ii : int
 	assert_expr : object
 	model : Optional["Model"]
+	solver_detect_fail_time: float
 	def __str__(self):
 		return f"Fail! b{self.assert_ii} `{self.assert_expr}` @ cycle {self.cycle}. After: {super().__str__()}."
 	@property
@@ -102,6 +103,8 @@ class BoundedCheck:
 		success = not res.is_fail
 		if self.verbose:
 			timing = f"{res.total_time:.3f} sec, {res.solver_time:.3f} sec to solve"
+			if isinstance(res,CheckFailure):
+				timing += f", {res.solver_detect_fail_time:.3f} sec to detect failure"
 			valid = "✔" if success else "❌"
 			print(f"{valid}️ {self.name} ({timing})")
 
