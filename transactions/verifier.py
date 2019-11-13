@@ -26,7 +26,7 @@ class Verifier:
 	@staticmethod
 	def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
 		if module.reset is None: return None
-		rst = Symbol(module.reset.name, BVType(1))
+		rst = Symbol(module.io_prefix + module.reset.name, BVType(1))
 		if isinstance(module.reset, HighActiveReset):
 			return Equals(rst, BV(0, 1))
 		else:
