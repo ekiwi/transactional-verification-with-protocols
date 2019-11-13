@@ -3,6 +3,8 @@
 
 import subprocess, os, tempfile, time, re
 from collections import defaultdict
+from itertools import chain
+
 from cache_to_disk import cache_to_disk
 from typing import Optional
 from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
@@ -67,9 +69,9 @@ class MCProofEngine:
 				assert_to_expr.append(aa)
 
 		# watch outputs + state in order to get their values in case of a witness
-		watched_signals = { f"__watch_{sig_name}": Symbol(sig_name, sig_tpe)
-							for sig_name, sig_tpe in mod.signals.items() if not sig_tpe.is_array_type() }
-		for name, expr in watched_signals.items(): solver.watch(name, expr)
+		watched_signals = ((n,t) for n,t in chain(mod.outputs.items(), mod.state.items()) if not t.is_array_type())
+		watch_symbols = { f"__watch_{sig_name}": Symbol(sig_name, sig_tpe) for sig_name, sig_tpe in watched_signals}
+		for name, expr in watch_symbols.items(): solver.watch(name, expr)
 
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.btor2")
@@ -86,10 +88,10 @@ class MCProofEngine:
 			assert_expr = assert_to_expr[assert_ii]
 
 			# turn model into correct format
-			signals = list(watched_signals.values())
+			signals = list(watch_symbols.values())
 			indices = {sym.symbol_name(): ii for ii, sym in enumerate(signals)}
 			# this relies on stable dictionaries
-			data = [[model['steps'][ii][name]['data'] for name, sym in watched_signals.items()] for ii in range(cycle+1)]
+			data = [[model['steps'][ii][name]['data'] for name, sym in watch_symbols.items()] for ii in range(cycle+1)]
 			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0)
 			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m)
 
