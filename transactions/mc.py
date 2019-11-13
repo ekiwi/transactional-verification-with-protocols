@@ -93,7 +93,7 @@ class MCProofEngine:
 			# this relies on stable dictionaries
 			data = [[model['steps'][ii][name]['data'] for name, sym in watch_symbols.items()] for ii in range(cycle+1)]
 			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0)
-			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m)
+			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m, solver_time)
 
 class BtorMC:
 	def __init__(self, header, bin='btormc'):
