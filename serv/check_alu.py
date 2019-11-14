@@ -33,12 +33,13 @@ def make_op(name, BVOperation, ctrl) -> Transaction:
 					   args={'a': BVType(32), 'b': BVType(32)}, ret_args={'res': BVType(32)})
 
 alu_spec = Spec(transactions=[
-	Transaction("Idle"),
 	make_op("Add", BVAdd, {'i_sub': BV(0,1), 'i_rd_sel': ALU_RESULT_ADD}),
 	make_op("Sub", BVSub, {'i_sub': BV(1,1), 'i_rd_sel': ALU_RESULT_ADD}),
 	make_op("Or",  BVOr,  {'i_bool_op': BOOL_OP_OR,  'i_rd_sel': ALU_RESULT_BOOL}),
 	make_op("Xor", BVXor, {'i_bool_op': BOOL_OP_XOR, 'i_rd_sel': ALU_RESULT_BOOL}),
 	make_op("And", BVAnd, {'i_bool_op': BOOL_OP_AND, 'i_rd_sel': ALU_RESULT_BOOL}),
+	# TODO: potentially special case IDLE
+	Transaction("Idle"),
 ])
 
 # TODO: fix shifts
