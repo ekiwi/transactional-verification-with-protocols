@@ -230,13 +230,13 @@ class BtorMC:
 
 		init = {}
 		steps = defaultdict(dict)
-		for line in msg[2:]:
-			if line.startswith('b'):
+		for ii, line in enumerate(msg[2:]):
+			if line.startswith('b') or line.startswith('sat'):
 				break
 			if len(line) == 0 or line[0] in {'#', '@', '.'}:
 				continue
 			parts = line.split(' ')
-			assert len(parts) in {3, 4}, f"Unexpected number of space sparated parts: {parts}"
+			assert len(parts) in {3, 4}, f"Unexpected number of space separated parts @{ii}: {parts}\n{line}\n{msg}"
 			if len(parts) == 3:
 				entry = { 'data': int(parts[1], 2) }
 			else:
