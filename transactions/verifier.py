@@ -304,7 +304,7 @@ class Verifier:
 	def proof_all(self):
 		self.verify_inductive_base_case()
 		for tran in self.prob.spec.transactions:
-			traces = self.find_transaction_trace(tran)
+			traces = self.find_transaction_trace(tran, self.prob.submodules)
 			self.verify_transaction_trace_format(tran, traces)
 			self.verify_transaction(tran, traces)
 			self.verify_inductive_step(tran, traces)
