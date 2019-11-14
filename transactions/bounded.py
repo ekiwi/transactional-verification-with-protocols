@@ -45,12 +45,12 @@ class CheckSuccess(CheckResult):
 	def is_fail(self): return False
 
 class BoundedCheck:
-	def __init__(self, name: str, verifier: "Verifier", cycles: int):
+	def __init__(self, name: str, verifier: "Verifier", cycles: int, active:bool = False):
 		self._mod = verifier.mod
 		self._engine = verifier.engine
 		self.data = BoundedCheckData(name=name, cycles=cycles, steps=[CheckStep(ii) for ii in range(cycles + 1)])
 		self._sym_names: Set[str] = set(self._mod.signals.keys())
-		self._active = False
+		self._active = active
 		self.verbose = True
 	@property
 	def cycles(self):
@@ -114,6 +114,12 @@ class BoundedCheck:
 
 		assert success, f"failed check {self.name}\n{res}"
 		return success
+
+	def do_check(self):
+		self._active = False
+		# TODO: do not produce a counter example!
+		res = self._engine.check(self.data, mod=self._mod)
+		return not res.is_fail
 
 @dataclass
 class BoundedCheckData:

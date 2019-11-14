@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+
+import copy
 import itertools
 from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
@@ -11,8 +13,11 @@ from .bounded import BoundedCheck
 from typing import Iterable, Tuple, Union
 from collections import defaultdict
 
-def transaction_len(tran: Transaction):
+def transaction_len(tran: Transaction) -> int:
 	return len(tran.proto.transitions)
+
+def transaction_trace_len(trace: List[Transaction]) -> int:
+	return sum(transaction_len(tt) for tt in trace)
 
 def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
 	if module.reset is None: return None
@@ -67,6 +72,8 @@ def generate_outputs(tran: Transaction, module: RtlModule, state: Dict[str, SmtS
 	mappings = map_symbols(make_symbols(tran.ret_args, prefix))
 
 	for ii, tt in enumerate(tran.proto.transitions):
+		# stop generating inputs when we are at the end of the check
+		if ii + offset > check.cycles: break
 		# connect outputs
 		for signal_name, expr in tt.outputs.items():
 			sig = Symbol(module.io_prefix + signal_name, module.outputs[signal_name])
@@ -85,6 +92,8 @@ def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, o
 	inactive_rst = get_inactive_reset(module)
 	if inactive_rst is not None:
 		for ii in range(transaction_len(tran)):
+			# stop generating inputs when we are at the end of the check
+			if ii + offset > check.cycles: break
 			if assume_dont_assert_requirements:
 				check.assume_at(ii + offset, inactive_rst)
 			else:
@@ -95,6 +104,8 @@ def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, o
 
 	# find constant and variable mapping on the protocol inputs
 	for ii, tt in enumerate(tran.proto.transitions):
+		# stop generating inputs when we are at the end of the check
+		if ii + offset > check.cycles: break
 		for signal_name, expr in tt.inputs.items():
 			sig = Symbol(module.io_prefix + signal_name, module.inputs[signal_name])
 			for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in FindVariableIntervals.find(expr):
@@ -116,7 +127,8 @@ def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, o
 	# make sure that all arguments of the transaction are defined in the protocol
 	for name, tpe in tran.args.items():
 		if Symbol(name, tpe) not in var2inputs:
-			print(f"WARN: in transaction {tran.name}: argument {name} is not defined by the protocol. Will be random!")
+			# TODO: uncomment
+			#print(f"WARN: in transaction {tran.name}: argument {name} is not defined by the protocol. Will be random!")
 			check.constant(Symbol(prefix + name, tpe))
 
 	# declare protocol arguments and their restrictions
@@ -131,7 +143,9 @@ def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, o
 		# check that all bits are defined
 		for bit in range(var.symbol_type().width):
 			if bit not in covered_bits:
-				print(f"WARN: in transaction {tran.name}: argument bit {var}[{bit}] is not defined by the protocol.")
+				# TODO: uncomment
+				#print(f"WARN: in transaction {tran.name}: argument bit {var}[{bit}] is not defined by the protocol.")
+				pass
 
 		# generate input constant
 		var_sym = Symbol(prefix + var.symbol_name(), var.symbol_type())
@@ -162,9 +176,12 @@ def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, o
 
 
 def do_transaction(tran: Transaction, check: BoundedCheck, traces: Dict[str, List[Transaction]],
-				   invariances: List[SmtExpr], mod: RtlModule, subspecs: Dict[str, Spec]):
+				   invariances: List[SmtExpr], mod: RtlModule, subspecs: Dict[str, Spec],
+				   allow_incomplete: bool = False):
 	""" (symbolically) execute a transaction of the module being verified  """
-	#assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
+	assert check.cycles > 0, f"Zero cycle checks are not supported!"
+	if not allow_incomplete:
+		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
 
 	# assume invariances hold at the beginning of the transaction
 	for inv in invariances:
@@ -229,9 +246,15 @@ class Verifier:
 			for ii in self.prob.invariances:
 				check.assert_at(1, ii)
 
-	def check_transacion_trace_candidate(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
+	def check_transacion_trace_candidate(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
 		""" returns True if the trace is the only feasible trace, i.e. if there is no other feasible trace """
-		return False
+		cycles = min(transaction_trace_len(trace) for trace in traces.values())
+		assert cycles > 0, f"Zero cycles! {traces}"
+
+		check = BoundedCheck(f"try transaction trace for {tran.name}", self, cycles=cycles, active=True)
+		do_transaction(tran=tran, check=check, traces=traces, invariances=self.prob.invariances,
+					   mod=self.mod, subspecs=self.prob.submodules, allow_incomplete=True)
+		return check.do_check()
 
 
 	def find_transaction_trace(self, tran: Transaction, subspecs: Dict[str, Spec]) -> Dict[str, List[Transaction]]:
@@ -240,29 +263,53 @@ class Verifier:
 		# this algorithm requires no backtracking since transactions are uniquely identified by their input requirements
 		traces  = { instance: [] for instance in subspecs.keys() }
 		choices = { instance: spec.transactions for instance, spec in subspecs.items() }
-		lens = { instance : 0 for instance in subspecs.keys() }
+		max_len = transaction_len(tran)
 
-		while True:
+		found_solution = False
+		while not found_solution:
 			# find set of instances for which we need to append transactions
+			lens = { ii: transaction_trace_len(trace) for ii, trace in traces.items() }
 			min_len = min(lens.values())
 			instances = [name for name, ll in lens.items() if ll == min_len]
 
+			# find possible transactions for each instance
+			dimensions = []
+			for ii in instances:
+				possible = [(ii, tt) for tt in choices[ii] if lens[ii] + transaction_len(tt) <= max_len]
+				assert len(possible) > 0, f"No candidate traces found for {ii}. {traces[ii]}"
+				dimensions.append(possible)
+
 			# iterate over all combinations
-			
+			made_progress = False
+			for candidates in itertools.product(*dimensions):
+				cand_traces = copy.copy(traces)
+				for ii, tt in candidates:
+					cand_traces[ii] = cand_traces[ii] + [tt] # important to create a new list here!
+				if self.check_transacion_trace_candidate(tran, cand_traces):
+					# found a valid trace!
+					traces = cand_traces
+					if all(transaction_trace_len(trace) == max_len for trace in traces.values()):
+						found_solution = True
+					made_progress = True
+					break
+			assert made_progress, f"No progress in trying top find trace for {tran.name}!"
+			for ii, trace in traces.items():
+				print(f"{ii}: {[tt.name for tt in trace]}")
+		return traces
 
 		# TODO: actually discover traces
-		assert set(self.prob.submodules.keys()) == {'regfile', 'alu'}, f"{list(self.prob.submodules.keys())}"
-		rr = {tt.name: tt for tt in self.prob.submodules['regfile'].transactions}
-		aa = {tt.name: tt for tt in self.prob.submodules['alu'].transactions}
-		if tran.name == 'Idle':
-			return {'regfile': [rr['Idle']], 'alu': [aa['Idle']]}
-		elif tran.name == 'Add':
-			return {
-				'regfile': [rr[n] for n in ['RW', 'Idle']],
-				'alu': [aa[n] for n in ['Idle', 'Idle', 'Add', 'Idle']]
-			}
-		else:
-			assert False, f"Unknown transaction {tran.name}"
+		# assert set(self.prob.submodules.keys()) == {'regfile', 'alu'}, f"{list(self.prob.submodules.keys())}"
+		# rr = {tt.name: tt for tt in self.prob.submodules['regfile'].transactions}
+		# aa = {tt.name: tt for tt in self.prob.submodules['alu'].transactions}
+		# if tran.name == 'Idle':
+		# 	return {'regfile': [rr['Idle']], 'alu': [aa['Idle']]}
+		# elif tran.name == 'Add':
+		# 	return {
+		# 		'regfile': [rr[n] for n in ['RW', 'Idle']],
+		# 		'alu': [aa[n] for n in ['Idle', 'Idle', 'Add', 'Idle']]
+		# 	}
+		# else:
+		# 	assert False, f"Unknown transaction {tran.name}"
 
 	def verify_transaction_trace_format(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
 		# check that for each blackboxed submodule we have a trace of the correct length
