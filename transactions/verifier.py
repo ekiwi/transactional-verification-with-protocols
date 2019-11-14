@@ -19,6 +19,10 @@ def transaction_len(tran: Transaction) -> int:
 def transaction_trace_len(trace: List[Transaction]) -> int:
 	return sum(transaction_len(tt) for tt in trace)
 
+def print_traces(traces: Dict[str,List[Transaction]]):
+	for ii, trace in traces.items():
+		print(f"{ii:<10}: {[tt.name for tt in trace]}")
+
 def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
 	if module.reset is None: return None
 	rst = Symbol(module.io_prefix + module.reset.name, BVType(1))
@@ -293,8 +297,7 @@ class Verifier:
 					made_progress = True
 					break
 			assert made_progress, f"No progress in trying top find trace for {tran.name}!"
-			for ii, trace in traces.items():
-				print(f"{ii}: {[tt.name for tt in trace]}")
+			print_traces(traces)
 		return traces
 
 		# TODO: actually discover traces
