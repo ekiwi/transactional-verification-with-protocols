@@ -240,9 +240,15 @@ class Verifier:
 		# this algorithm requires no backtracking since transactions are uniquely identified by their input requirements
 		traces  = { instance: [] for instance in subspecs.keys() }
 		choices = { instance: spec.transactions for instance, spec in subspecs.items() }
+		lens = { instance : 0 for instance in subspecs.keys() }
 
+		while True:
+			# find set of instances for which we need to append transactions
+			min_len = min(lens.values())
+			instances = [name for name, ll in lens.items() if ll == min_len]
 
-
+			# iterate over all combinations
+			
 
 		# TODO: actually discover traces
 		assert set(self.prob.submodules.keys()) == {'regfile', 'alu'}, f"{list(self.prob.submodules.keys())}"
