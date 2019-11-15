@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import subprocess, os, re, tempfile
-from cache_to_disk import cache_to_disk
 from itertools import chain
 from collections import defaultdict
 from typing import List
@@ -19,7 +18,6 @@ def require_yosys() -> str:
 	version = re.match(r'Yosys (\d+\.\d+\+\d+)', r.stdout.decode('utf-8')).group(1)
 	return version
 
-@cache_to_disk(1)
 def parse_verilog(filenames: List[str], top: str,  ignore_wires: bool = True, pre_mc_cmds= None, formats = None):
 	for ff in filenames:
 		assert os.path.isfile(ff), ff

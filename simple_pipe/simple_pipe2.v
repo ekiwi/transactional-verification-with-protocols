@@ -32,7 +32,7 @@ reg [1:0] id_ex_op;
 reg [1:0] id_ex_rd;
 reg       id_ex_reg_wen;
 
-wire[7:0] ex_alu_result;
+reg [7:0] ex_alu_result; // TODO revert to wire
 reg [7:0] ex_wb_val;
 reg [1:0] ex_wb_rd;
 reg       ex_wb_reg_wen;
@@ -177,10 +177,13 @@ always @(posedge clk) begin
 end
 // EX
 
-assign ex_alu_result =  id_ex_op == `OP_ADD ? id_ex_rs1_val + id_ex_rs2_val :
-                        id_ex_op == `OP_SUB ? id_ex_rs1_val - id_ex_rs2_val :
-                        id_ex_op == `OP_AND ? id_ex_rs1_val & id_ex_rs2_val :
-                        8'bxxxxxxxx;
+// TODO revert to wire
+always @(posedge clk) begin
+    ex_alu_result <=  id_ex_op == `OP_ADD ? id_ex_rs1_val + id_ex_rs2_val :
+                      id_ex_op == `OP_SUB ? id_ex_rs1_val - id_ex_rs2_val :
+                      id_ex_op == `OP_AND ? id_ex_rs1_val & id_ex_rs2_val :
+                      8'bxxxxxxxx;
+end
 
 always @(posedge clk) begin
     if (rst) begin

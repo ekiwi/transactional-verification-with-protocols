@@ -4,7 +4,6 @@
 # SMT2 Lib based backend for BoundedCheck
 
 import subprocess, tempfile, os, itertools, re
-from cache_to_disk import cache_to_disk
 from pysmt.shortcuts import *
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 import time
@@ -292,7 +291,6 @@ def _write_scrip(header, filename, funs, assertions, cmds: list):
 			cmd.serialize(outstream=ff)
 			print("", file=ff)
 
-@cache_to_disk(1)
 def _check_sat(solver, header, filename, funs, assertions, get_cmds=[]):
 	start = time.time()
 	cmds = [SmtLibCommand(smtcmd.CHECK_SAT, [])] + get_cmds

@@ -3,7 +3,6 @@
 
 import subprocess, os, tempfile, time, re
 from collections import defaultdict
-from cache_to_disk import cache_to_disk
 from typing import Optional
 from pysmt.shortcuts import Symbol, BVType, BV, BVAdd, Not, Equals, Implies, BOOL, ArrayType
 from pysmt.walkers import DagWalker
@@ -267,7 +266,6 @@ class BtorMC:
 			model = None
 		return success, delta, model
 
-@cache_to_disk(1)
 def _check(solver, k, filename, header, lines):
 	start = time.time()
 	filename = default(filename, tempfile.mkstemp()[1])
