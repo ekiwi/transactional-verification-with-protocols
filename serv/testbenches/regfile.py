@@ -1,48 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os
-from dataclasses import dataclass
-from typing import Dict, Union
-import functools
 
-class BitVector:
-	def __init__(self):
-		pass
-
-	@staticmethod
-	def random(bits):
-		return 0
-
-@dataclass
-class VerilatorSignal:
-	name: str
-	typ: str
-	dir: str
-
-	def __le__(self, other):
-		if isinstance(other, int):
-			print(f"{self.name} <= int({other})")
-		elif isinstance(other, bool):
-			print(f"{self.name} <= bool({other})")
-		else:
-			assert False, f"Unexpected type: {other}"
-
-class VerilatorModule:
-	def __init__(self, signals: Dict[str, VerilatorSignal]):
-		self.signals = signals
-
-	def __getattr__(self, item) -> VerilatorSignal:
-		assert isinstance(item, str), f"Expected string not {type(item)} ({item})"
-		return self.signals[item]
-
-def expect(expr):
-	assert expr
-
-def ensure(expr):
-	assert expr
-
-def cat(a, b):
-	raise NotImplementedError("TODO")
+from transactions.testbench import VerilatorModule, BitVector, expect, ensure, cat
+import functools, os
 
 #############################################################
 def test_regfile(dut: VerilatorModule):
@@ -73,6 +33,8 @@ def read_reg(dut: VerilatorModule, ii: int):
 	return functools.reduce(cat, bits)
 
 def regfile_rw(dut: VerilatorModule, rs1_addr, rs2_addr, rd_addr, rd_en, rd, rs1, rs2):
+	dut.i_rst <= 0
+
 	dut.i_go <= 1
 	dut.i_rd_en <= 0
 	expect(dut.o_ready == 0)

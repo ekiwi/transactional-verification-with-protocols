@@ -22,7 +22,7 @@ def dict_to_module(module_data: dict, src: Optional[dict], reset: Optional[Reset
 	module_data['io_prefix'] = module_data.get('io_prefix', '')
 	return Module(**module_data, smt2_src=src['smt2'], btor2_src=src['btor'], verilog_src=src['v'], submodules=submodules, reset=reset)
 
-def load_module(name: str, verilog_files: List[str], ignore_wires: bool, blackbox: Optional[List[str]], high_active_reset=True):
+def load_module(name: str, verilog_files: List[str], ignore_wires: bool, blackbox: Optional[List[str]], high_active_reset=True, dict_to_mod=dict_to_module):
 	for ff in verilog_files:
 		assert os.path.isfile(ff), ff
 
@@ -42,7 +42,7 @@ def load_module(name: str, verilog_files: List[str], ignore_wires: bool, blackbo
 	btor2_names = parse_yosys_btor(src['btor'])
 	module_data = merge_smt2_and_btor(smt2_names, btor2_names)
 	reset = find_reset(module_data, high_active_reset)
-	return dict_to_module(module_data, src, reset, submodules)
+	return dict_to_mod(module_data, src, reset, submodules)
 
 
 class Module(RtlModule):
