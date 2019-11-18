@@ -2,3 +2,4 @@ PySMT >= 0.8.1dev
 tabulate
 pyvcd
 cache-to-disk == 0.0.3
+cocotb
