@@ -77,6 +77,8 @@ regfile_v = os.path.join('fork', 'rtl', 'serv_regfile.v')
 def main() -> int:
 	version = require_yosys()
 
+	protocol_to_wavedrom_file("regfile_rw.json", regfile_spec.transactions[1].proto)
+
 	prob = VerificationProblem(spec=regfile_spec, implementation='serv_regfile',
 							   invariances=invariances, mappings=mappings)
 	mod = Module.load('serv_regfile', [regfile_v])

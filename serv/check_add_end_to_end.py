@@ -95,6 +95,8 @@ def main() -> int:
 	#prob = no_abstraction_check
 	prob = abstract_refile_and_alu_check
 
+	protocol_to_wavedrom_file("serv_add.json", serv_spec.transactions[0].proto)
+
 	# select proof engine
 	ee = SMT2ProofEngine(outdir='../smt2')
 	# ee = MCProofEngine(outdir="../btor2")
