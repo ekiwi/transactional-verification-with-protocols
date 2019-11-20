@@ -89,13 +89,28 @@ abstract_refile_and_alu_check = VerificationProblem(
 
 src = [os.path.join('fork', 'rtl', name + '.v') for name in ['serv_alu', 'ser_lt', 'ser_shift', 'ser_add', 'shift_reg', 'serv_bufreg', 'serv_csr', 'serv_ctrl', 'serv_decode', 'serv_regfile', 'serv_mem_if', 'serv_top']]
 
+
+def generate_wavedro():
+	protocol_to_wavedrom_file("serv_add.json", serv_spec.transactions[0].proto)
+	import json
+	alu_idle, alu_add = alu_spec.transactions[-1], alu_spec.transactions[0]
+	tt = trace_to_wavedrom([alu_idle, alu_idle, alu_add, alu_idle])
+	with open('alu_trace.json', 'w') as ff:
+		json.dump(tt, ff, indent=2)
+
+	reg_idle, reg_rw = regfile_spec.transactions[0], regfile_spec.transactions[-1]
+	traces = {'alu': [alu_idle, alu_idle, alu_add, alu_idle], 'regfile': [reg_rw, reg_idle]}
+	serv_add = serv_spec.transactions[0]
+	tt = composition_to_wavedrom('serv', serv_add, traces)
+	with open('serv_trace.json', 'w') as ff:
+		json.dump(tt, ff, indent=2)
+
 def main() -> int:
 
 	# select verification problem
 	#prob = no_abstraction_check
 	prob = abstract_refile_and_alu_check
 
-	protocol_to_wavedrom_file("serv_add.json", serv_spec.transactions[0].proto)
 
 	# select proof engine
 	ee = SMT2ProofEngine(outdir='../smt2')
