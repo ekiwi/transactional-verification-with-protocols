@@ -30,7 +30,10 @@ def main() -> int:
 	print(f"Using yosys {version}")
 
 	mod = Module.load('ser_add', [add_v])
-	prob = VerificationProblem(spec=AdderSpec(32), implementation='ser_add')
+	spec = AdderSpec(8)
+	prob = VerificationProblem(spec=spec, implementation='ser_add')
+
+	#protocol_to_wavedrom_file("adder.json", spec.transactions[0].proto)
 
 	print(f"Trying to proof {mod.name}")
 	#print(mod)
