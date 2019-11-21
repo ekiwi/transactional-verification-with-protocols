@@ -1,8 +1,5 @@
 <testsuites name="results">
   <testsuite name="all" package="all" tests="0">
-    <property name="random_seed" value="1574110346" />
-    <testcase classname="test_shift" name="test_sll" ratio_time="192452234559.97064" sim_time_ns="1000000000.0" time="0.005196094512939453">
-      <failure message="Test failed with random_seed=1574110346" stderr="" stdout="'Send raised exception:'" />
-    </testcase>
+    <property name="random_seed" value="1574327917" />
   </testsuite>
 </testsuites>

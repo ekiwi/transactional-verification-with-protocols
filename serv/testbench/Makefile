@@ -4,6 +4,8 @@ VERILOG_SOURCES=$(VERILOG_DIR)/ser_shift.v $(VERILOG_DIR)/ser_add.v $(VERILOG_DI
 
 # TOPLEVEL is the name of the toplevel module in your Verilog or VHDL file:
 TOPLEVEL=serv_alu
+# TOPLEVEL=ser_shift
+
 # MODULE is the name of the Python test file:
 MODULE=test_shift
 
