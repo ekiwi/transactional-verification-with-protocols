@@ -1,5 +1,6 @@
 <testsuites name="results">
   <testsuite name="all" package="all" tests="0">
-    <property name="random_seed" value="1574327917" />
+    <property name="random_seed" value="1574387963" />
+    <testcase classname="test_shift" name="test_sll" ratio_time="0.48138459772753356" sim_time_ns="0.001" time="0.002077341079711914" />
   </testsuite>
 </testsuites>
