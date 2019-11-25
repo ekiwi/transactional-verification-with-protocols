@@ -29,7 +29,7 @@ spec = Spec(
 invariances = [
 	Equals(Symbol('running', BVType(1)), BV(0,1)),
 	# TODO: remove
-	Equals(Symbol('delay', BVType(4)), BV(1,4))
+	Equals(Symbol('delay', BVType(2)), BV(1,2))
 ]
 mappings = []
 
