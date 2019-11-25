@@ -10,9 +10,9 @@ reg [31:0] buffer;
 always @(posedge clock)
 	if(start) buffer <= in;
 
-reg [3:0] delay;
+reg [1:0] delay;
 always @(posedge clock)
-	if(reset)     delay <= 4'h1;
+	if(reset)     delay <= 2'h1;
 	// else if(done) delay <= delay + 4'h1;
 
 reg [3:0] counter;
@@ -26,7 +26,7 @@ always @(posedge clock)
 	else if(start) running <= 1'h1;
 	else if(done)  running <= 1'h0;
 
-assign done = running & (counter == delay);
+assign done = running & (counter == {2'h0, delay});
 assign out = (done)? buffer : 32'h0;
 
 endmodule
