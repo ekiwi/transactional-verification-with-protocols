@@ -31,7 +31,7 @@ class Protocol:
 class Transaction:
 	# name is used for debugging and error handling
 	name : str
-	proto : Protocol = field(default_factory=Protocol)
+	proto : List[Protocol] = field(default_factory=lambda: [Protocol()])
 	# TODO: allow semantics to refer to subtransactions which could then be verified as uninterpreted functions
 	semantics : Dict[str, SmtExpr] = field(default_factory=dict)
 	args: Dict[str, SmtSort] = field(default_factory=dict)
