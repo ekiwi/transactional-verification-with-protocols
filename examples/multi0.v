@@ -12,7 +12,7 @@ always @(posedge clock)
 
 reg [3:0] delay;
 always @(posedge clock)
-	if(reset)     delay <= 4'h0;
+	if(reset)     delay <= 4'h1;
 	// else if(done) delay <= delay + 4'h1;
 
 reg [3:0] counter;
