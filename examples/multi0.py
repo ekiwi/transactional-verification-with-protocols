@@ -17,19 +17,18 @@ def protocol(delay=0):
 	return Protocol([start] + [idle] * delay + [done])
 
 semantics = { 'data_out': data_in }
+args={'data_in': BVType(32)}
+ret_args={'data_out': BVType(32)}
 
 spec = Spec(
-	transactions=[
-		Transaction("Idle", proto=Protocol([idle])),
-		Transaction("Delay1", proto=protocol(delay=1), semantics=semantics,	args={'data_in': BVType(32)}, ret_args={'data_out': BVType(32)}
-		)
-	]
+	transactions=[Transaction("Idle", proto=[Protocol([idle])]),
+	Transaction(f"Delay", proto=[protocol(delay=ii)  for ii in range(4)],
+				semantics=semantics, args=args, ret_args=ret_args)
+	 ]
 )
 
 invariances = [
 	Equals(Symbol('running', BVType(1)), BV(0,1)),
-	# TODO: remove
-	Equals(Symbol('delay', BVType(2)), BV(1,2))
 ]
 mappings = []
 
