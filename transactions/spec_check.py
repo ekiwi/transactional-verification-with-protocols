@@ -4,8 +4,10 @@
 # code to verify the well-formedness (i.e. semantic checks) of a verification problem and spec
 
 from .spec import *
-from pysmt.shortcuts import get_free_variables, BOOL, Symbol
+from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Or, Not
 from typing import Optional
+import functools, tempfile
+from .smt2 import Solver
 
 
 def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, Any], msg: str, tpe: Optional[SmtSort] = None):
@@ -82,6 +84,26 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 		tran_index[tran.name] = tran
 		check_transaction(tran, mod, arch_state_symbols)
 
+def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
+	assert len(proto.transitions) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
+	if proto.guard is not None:
+		check_smt_expr(proto.guard, tran.args, tpe=BOOL, msg="Protocol guards may only refer to transaction arguments.")
+	for tt in proto.transitions:
+		for pin, expr in tt.inputs.items():
+			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
+			check_smt_expr(expr, tran.args, tpe=mod.inputs[pin],
+						   msg="Input pins may be bound to constants or transaction arguments.")
+		for pin, expr in tt.outputs.items():
+			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
+			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
+						   msg="Output pins may be bound to constants or transaction return arguments.")
+
+def is_valid(e: SmtExpr) -> bool:
+	solve = Solver(header='')
+	f = tempfile.NamedTemporaryFile()
+	funs = list(get_free_variables(e))
+	out, delta = solve.check_sat(filename=f.name, assertions=[Not(e)], funs=funs)
+	return out == 'unsat'
 
 def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dict[str, SmtSort]):
 	require_scalar(tran.args, "Transaction argument")
@@ -103,15 +125,16 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	unknown_outputs = set(tran.semantics.keys()) - output_names
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
 
-	# check protocol
-	assert len(tran.proto.transitions) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
-	for tt in tran.proto.transitions:
-		for pin, expr in tt.inputs.items():
-			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
-			check_smt_expr(expr, tran.args, tpe=mod.inputs[pin],
-						   msg="Input pins may be bound to constants or transaction arguments.")
-		for pin, expr in tt.outputs.items():
-			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
-			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
-						   msg="Output pins may be bound to constants or transaction return arguments.")
+	# check protocols
+	for proto in tran.proto:
+		check_protocol(tran, mod, proto)
+	# ensure that the protocols do not restrict the arguments
+	proto_guards = [pp.guard for pp in tran.proto]
+	if not any(gg is None for gg in proto_guards):
+		guard_dis = functools.reduce(Or, proto_guards)
+		# we need the disjunction of all guards to always be 1 in order to ensure that all transaction agrguments
+		# are valid
+		assert is_valid(guard_dis), f"Protocol guards are not allowed to restrict the input space!: {proto_guards}"
+
+
 
