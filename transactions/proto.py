@@ -1,11 +1,51 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+from __future__ import annotations
 from .spec import *
 from pysmt.shortcuts import Symbol
 from collections import defaultdict
 
 # protocol processing algorithms
+
+@dataclass
+class Range:
+	msb: int
+	lsb: int
+
+@dataclass
+class Signal:
+	name: str
+	range: Optional[Range] = None
+	def __str__(self):
+		if self.range is None: return self.name
+		return f"{self.name}[{self.range.msb}:{self.range.lsb}]"
+
+@dataclass
+class Constraint:
+	signal: Signal
+
+@dataclass
+class ConstConstraint(Constraint):
+	value: int
+	def __str__(self): return f"{self.signal} = {self.value}"
+	def __repr__(self): return str(self)
+
+@dataclass
+class EquivalenceConstraint(Constraint):
+	transition: int
+	other: Signal
+
+@dataclass
+class ProtocolGraph:
+	pass
+
+@dataclass
+class ProtocolGraphEdge:
+	pass
+
+@dataclass
+class ProtocolGraphState:
+	pass
 
 
 def protocol_constraints(proto: Protocol):
@@ -14,36 +54,27 @@ def protocol_constraints(proto: Protocol):
 	# NOTE: this replaces parts of `generate_inputs` in `verifier.py`
 
 	# variable -> interval -> (cycle, signal_expr)
-	var2inputs: Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, SmtExpr]]]] = defaultdict(lambda: defaultdict(list))
+	var2inputs: Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, Signal]]]] = defaultdict(lambda: defaultdict(list))
+
+	input_constraints = [defaultdict(list) for _ in range(len(proto.transitions))]
 
 	# find constant and variable mapping on the protocol inputs
 	for ii, tt in enumerate(proto.transitions):
 		for signal_name, expr in tt.inputs.items():
-			sig = Symbol(signal_name, module.inputs[signal_name])
+			expr_width = expr.get_type().width
 			for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in FindVariableIntervals.find(expr):
-				is_full = signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width
+				is_full = signal_lsb == 0 and signal_msb + 1 == expr_width
 				if is_full:
-					sig_expr = sig
+					sig_expr = Signal(name = signal_name)
 				else:
-					sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
+					sig_expr = Signal(name = signal_name, range=Range(lsb=signal_lsb, msb=signal_msb))
 				if var.is_symbol():
-					var2inputs[var][(var_msb, var_lsb)].append((ii + offset, sig_expr))
+					var2inputs[var][(var_msb, var_lsb)].append((ii, sig_expr))
 				else:
 					assert var_lsb == 0 and var_msb + 1 == var.get_type().width, f"Expect constants to be simplified!"
-					# check that the input has the correct constant value in cycle ii+offset
-					if assume_dont_assert_requirements:
-						check.assume_at(ii + offset, Equals(sig_expr, var))
-					else:
-						check.assert_at(ii + offset, Equals(sig_expr, var))
+					value = int(var.bv_str(), 2)
+					input_constraints[ii][signal_name].append(ConstConstraint(signal=sig_expr, value=value))
 
-	# make sure that all arguments of the transaction are defined in the protocol
-	for name, tpe in tran.args.items():
-		if Symbol(name, tpe) not in var2inputs:
-			# TODO: uncomment
-			#print(f"WARN: in transaction {tran.name}: argument {name} is not defined by the protocol. Will be random!")
-			check.constant(Symbol(prefix + name, tpe))
-
-	# declare protocol arguments and their restrictions
 	for var, refs in var2inputs.items():
 		# check that there are no overlapping intervals as they aren't supported yet
 		covered_bits = set()
@@ -55,17 +86,13 @@ def protocol_constraints(proto: Protocol):
 		# check that all bits are defined
 		for bit in range(var.symbol_type().width):
 			if bit not in covered_bits:
-				# TODO: uncomment
-				#print(f"WARN: in transaction {tran.name}: argument bit {var}[{bit}] is not defined by the protocol.")
-				pass
-
-		# generate input constant
-		var_sym = Symbol(prefix + var.symbol_name(), var.symbol_type())
-		check.constant(var_sym)
+				print(f"WARN:  argument bit {var}[{bit}] is not defined by the protocol.")
 
 		# generate conditions for each interval
 		for ((msb, lsb), mappings) in refs.items():
 			assert len(mappings) > 0
+			# if a variable is only referenced once, then this imposes no constraints
+			if len(mappings) == 0: continue
 			full_range = msb + 1 == var.symbol_type().width and lsb == 0
 
 			# find (one of) the first references to this interval
@@ -73,18 +100,53 @@ def protocol_constraints(proto: Protocol):
 			start = mappings_sorted_by_cycle[0]
 
 			# we bind the start mapping to a constant and then check every other mapping against the constant
-			if full_range:
-				constant = var_sym
-			else:
-				constant = BVExtract(var_sym, start=lsb, end=msb)
+			transition = start[0]
+			if full_range:	const = Signal(start[1])
+			else:			const = Signal(start[1], Range(lsb=lsb, msb=msb))
 
-			# map the constant to the input variable symbol
-			check.assume_at(start[0], Equals(constant, start[1]))
+			# create constraint for every signal/cycle
 			for cycle, expr in mappings_sorted_by_cycle[1:]:
-				if assume_dont_assert_requirements:
-					check.assume_at(cycle, Equals(expr, constant))
-				else:
-					check.assert_at(cycle, Equals(expr, constant))
+				input_constraints[cycle][expr.name] = EquivalenceConstraint(signal=expr, transition=transition, other=const)
+
+	print(input_constraints)
 
 
-	pass
+
+from pysmt.walkers import DagWalker
+
+class FindVariableIntervals(DagWalker):
+	_instance: Optional[FindVariableIntervals] = None
+	@staticmethod
+	def find(expr: SmtExpr):
+		if FindVariableIntervals._instance is None:
+			FindVariableIntervals._instance = FindVariableIntervals()
+		return FindVariableIntervals._instance.walk(expr)
+	def __init__(self, env=None):
+		super().__init__(env)
+	def bits(self, formula): return formula.get_type().width
+	def walk(self, formula, **kwargs):
+		res = super().walk(formula, **kwargs)
+		if isinstance(res, list):
+			# fixup offsets of concatenation
+			res_rev = list(reversed(res))
+			widths = [ii[0] - ii[1] + 1 for ii in res_rev]
+			offsets = [0] + list(itertools.accumulate(widths))
+			final_res = [(ww - 1 + oo, oo, ii) for oo, ww, ii in zip(offsets, widths, res_rev)]
+			return final_res
+		else:
+			return [(self.bits(formula)-1, 0, res)]
+	def walk_bv_concat(self, formula, args, **kwargs):
+		return ((args[0] if isinstance(args[0], list) else [args[0]]) +
+		        (args[1] if isinstance(args[1], list) else [args[1]]))
+	def walk_bv_extract(self, formula, args, **kwargs):
+		lo = formula.bv_extract_start()
+		hi = formula.bv_extract_end()
+		assert len(args) == 1
+		old_hi, old_lo, name = args[0]
+		a = (hi + old_lo, lo + old_lo, name)
+		assert a[0] - a[1] == self.bits(formula) - 1
+		return a
+	def walk_array_select(self, formula, args, **kwargs):
+		raise NotImplementedError("TODO: support array select")
+	def walk_bv_constant(self, formula, **kwargs): return (self.bits(formula)-1, 0, formula)
+	def walk_symbol(self, formula, **kwargs): return (self.bits(formula)-1, 0, formula)
