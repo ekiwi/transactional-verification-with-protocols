@@ -35,9 +35,6 @@ invariances = [
 mappings = []
 
 def main() -> int:
-	for pp in spec.transactions[1].proto:
-		protocol_constraints(pp)
-
 
 	prob = VerificationProblem(spec=spec, implementation='multi0',
 							   invariances=invariances, mappings=mappings)

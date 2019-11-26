@@ -189,14 +189,14 @@ class Solver:
 	def fun(self, function):
 		self.funs.append(function)
 
-	def _check_sat(self, filename, funs, assertions, get_cmds=[]):
+	def check_sat(self, filename, assertions, funs=None, get_cmds=None):
 		stdout, delta = _check_sat(solver=self.bin, header=self.header, filename=filename, funs=funs, assertions=assertions, get_cmds=get_cmds)
 		assert 'error' not in stdout, f"SMT solver call failed on {filename}: {stdout}"
 		return stdout, delta
 
 	def _check_vc(self, vc, filename):
 		vc_validity = Not(conjunction(*vc))
-		return self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename)
+		return self.check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename)
 
 	def _check_vc_is_sat(self, vc, filename, sat_time):
 		stdout, delta = self._check_vc(vc=vc, filename=filename)
@@ -210,7 +210,7 @@ class Solver:
 
 	def _verify_assumptions(self, filename, sat_time):
 		ff = os.path.splitext(filename)[0] + "_verify_assumptions.smt2"
-		stdout, delta = self._check_sat(funs=self.funs, assertions=self.assertions, filename=filename)
+		stdout, delta = self.check_sat(funs=self.funs, assertions=self.assertions, filename=filename)
 		sat_time.append(delta)
 		# if there is no satisfying assignment, then the assumptions are contradictory
 		return stdout == sat
@@ -254,7 +254,7 @@ class Solver:
 
 		# run SMT solver
 		vc_validity = Not(conjunction(*vc))
-		out, sat_time = self._check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
+		out, sat_time = self.check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
 		lines = out.split('\n')
 		assert lines[0] == 'sat', f"model generation is only supported for satisfiable queries. Expected `sat` got `{lines[0]}`"
 
@@ -310,7 +310,9 @@ def _write_scrip(header, filename, funs, assertions, cmds: list):
 			print("", file=ff)
 
 #@cache_to_disk(1)
-def _check_sat(solver, header, filename, funs, assertions, get_cmds=[]):
+def _check_sat(solver, header, filename, funs, assertions, get_cmds=None):
+	funs = [] if funs is None else funs
+	get_cmds = [] if get_cmds is None else get_cmds
 	start = time.time()
 	cmds = [SmtLibCommand(smtcmd.CHECK_SAT, [])] + get_cmds
 	_write_scrip(header=header, filename=filename, funs=funs, assertions=assertions, cmds=cmds)
