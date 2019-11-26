@@ -26,6 +26,7 @@ class Protocol:
 	       - allow various length paths that could be controlled by the model (instead of the environment)
 	"""
 	transitions : List[Transition] = field(default_factory=lambda: [Transition()])
+	guard: Optional[SmtExpr] = None # determines when this protocol is enabled (guard can only refer to transaction arguments)
 
 @dataclass
 class Transaction:
