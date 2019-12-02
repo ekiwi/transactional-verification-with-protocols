@@ -36,7 +36,7 @@ ret_args={'data_out': BVType(32)}
 
 spec = Spec(
 	transactions=[Transaction(f"Delay", proto=protocol, semantics=semantics, args=args, ret_args=ret_args)],
-	idle=Transition(inputs={'start': BV(0,1)}, outputs={'done': BV(0,1)}),
+	idle=LegacyProtocol([Transition(inputs={'start': BV(0,1)}, outputs={'done': BV(0,1)})]),
 )
 
 invariances = [
