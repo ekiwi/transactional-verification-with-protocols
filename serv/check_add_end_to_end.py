@@ -26,7 +26,7 @@ instruction = cat(funct7, rs2, rs1, funct3, rd, opcode)
 
 # we assume that no interrupt or data bus transaction will be incoming
 always = { 'i_timer_irq': BV(0, 1), 'i_dbus_ack': BV(0,1) }
-protocol = Protocol(
+protocol = LegacyProtocol(
 	[Transition(inputs={'i_ibus_rdt': instruction, 'i_ibus_ack': BV(1,1), **always}, outputs={'o_ibus_cyc': BV(1,1)})] +
 	[Transition(inputs={'i_ibus_ack': BV(0,1), **always}, outputs={'o_ibus_cyc': BV(0,1)})] * 34 +
 	[Transition(inputs={'i_ibus_ack': BV(0,1), **always}, outputs={'o_ibus_cyc': BV(1,1)})]
@@ -41,7 +41,7 @@ semantics = {'regs': regs_n}
 
 serv_spec = Spec(state={'regs': regs.symbol_type()}, transactions=[
 	Transaction("Add", args={'rs1': BVType(5), 'rs2': BVType(5), 'rd': BVType(5)}, semantics=semantics, proto=protocol),
-	Transaction("Idle", proto=Protocol([Transition(inputs={'i_ibus_ack': BV(0,1), **always})]))
+	Transaction("Idle", proto=LegacyProtocol([Transition(inputs={'i_ibus_ack': BV(0, 1), **always})]))
 ])
 
 # common invariances

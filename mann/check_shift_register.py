@@ -16,9 +16,9 @@ def gen_spec(data_width: int, depth: int, e: int = 0) -> Spec:
 	mem = Symbol('mem', mem_t)
 
 	push = Transaction("Push", args={'data': data_t},
-   		proto=Protocol([Transition(inputs={'push': BV(1,1), 'data_in': Symbol('data', data_t)}, outputs={'full': BV(0,1)})]),
-		semantics={'mem': }
-	)
+					   proto=LegacyProtocol([Transition(inputs={'push': BV(1, 1), 'data_in': Symbol('data', data_t)}, outputs={'full': BV(0, 1)})]),
+					   semantics={'mem': }
+					   )
 
 	spec = Spec(
 

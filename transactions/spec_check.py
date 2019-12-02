@@ -84,10 +84,11 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 		tran_index[tran.name] = tran
 		check_transaction(tran, mod, arch_state_symbols)
 
-def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
+def check_protocol(tran: Transaction, mod: RtlModule, proto: LegacyProtocol):
 	assert len(proto.transitions) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
-	if proto.guard is not None:
-		check_smt_expr(proto.guard, tran.args, tpe=BOOL, msg="Protocol guards may only refer to transaction arguments.")
+	# TODO: reenable!
+	#if proto.guard is not None:
+	#	check_smt_expr(proto.guard, tran.args, tpe=BOOL, msg="Protocol guards may only refer to transaction arguments.")
 	for tt in proto.transitions:
 		for pin, expr in tt.inputs.items():
 			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
@@ -125,6 +126,10 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	unknown_outputs = set(tran.semantics.keys()) - output_names
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
 
+	assert isinstance(tran.proto, LegacyProtocol), f"Currently only LegacyProtocols are supported! {tran.proto}"
+	check_protocol(tran, mod, tran.proto)
+	return
+
 	# check protocols
 	for proto in tran.proto:
 		check_protocol(tran, mod, proto)
@@ -132,7 +137,7 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	proto_guards = [pp.guard for pp in tran.proto]
 	if not any(gg is None for gg in proto_guards):
 		guard_dis = functools.reduce(Or, proto_guards)
-		# we need the disjunction of all guards to always be 1 in order to ensure that all transaction agrguments
+		# we need the disjunction of all guards to always be 1 in order to ensure that all transaction arguments
 		# are valid
 		assert is_valid(guard_dis), f"Protocol guards are not allowed to restrict the input space!: {proto_guards}"
 
