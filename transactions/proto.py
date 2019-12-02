@@ -4,6 +4,7 @@ from __future__ import annotations
 from .spec import *
 from pysmt.shortcuts import Symbol, And
 from collections import defaultdict
+from .verifier import make_symbols
 from typing import Set
 
 # protocol processing algorithms
@@ -41,6 +42,12 @@ class ProtocolGraph:
 	pass
 
 @dataclass
+class ProtocolGraphTransition:
+	inputs: Dict[str, List[Constraint]]
+	outputs: Dict[str, List[Constraint]]
+	guard: SmtExpr
+
+@dataclass
 class ProtocolGraphEdge:
 	guards: List[SmtExpr]
 	input_constraints: SmtExpr
@@ -49,14 +56,53 @@ class ProtocolGraphEdge:
 	outputs: Dict[str, SmtExpr]
 	transactions: Set[Transaction]
 
-
 @dataclass
 class ProtocolGraphState:
+	next: List[ProtocolGraphTransition]
+
+ProtocolPath = List[ProtocolGraphTransition]
+
+
+class ProtocolMerger:
+	def __init__(self, tran0: Transaction, tran1: Transaction):
+		self.args = make_symbols(tran.args)
+		self.ret_args = make_symbols(tran.ret_args)
+
+	def merge(self, s0: ProtocolGraphState, s1: ProtocolGraphState) -> ProtocolGraphState:
+		
+		for t0 in s0.next:
+			for t1 in s1.next:
+				if input_different(t0, t1):
+					continue
+				if output_compatible(t0, t1):
+					merge(t0, t1)
+					break
+				# there exists a common input trace, but outputs are not compatible
+				# => if this is between two different transactions -> abort!
+				# => if this is for the same transaction -> new edge
+
+
+def merge_protocols(s0: ProtocolGraphState, s1: ProtocolGraphState) -> ProtocolGraphState:
 	pass
+
+def compare_transitions(t1: Transition, t2: Transition):
+	inputs = set(t1.inputs.keys()) | set(t2.inputs.keys())
+	for ii in inputs:
+		# unconstrained in one example
+		if ii not in t1.inputs: print(f"{ii} missing from t1")
+		if ii not in t2.inputs: print(f"{ii} missing from t2")
+		# load expressions
+		e1, e2 = t1.inputs[ii], t2.inputs[ii]
+		if e1 == e2: print(f"{ii} is the same in t1 and t2")
+		# check for constant constraint
 
 def is_unsat(expr: SmtExpr) -> bool:
 	return False
 
+
+
+def get_input_constraints(tt: ProtocolGraphTransition) -> SmtExpr:
+	return True
 
 def visit_edges(prefix: SmtExpr, e0: ProtocolGraphEdge, e1: ProtocolGraphEdge) -> List[ProtocolGraphEdge]:
 	# check if there is an input that satisfies both edges
@@ -71,10 +117,6 @@ def visit_edges(prefix: SmtExpr, e0: ProtocolGraphEdge, e1: ProtocolGraphEdge) -
 	same_transaction = len(e0.transactions) == len(e1.transactions) == 1 and e0.transactions[0] == e1.transactions[0]
 
 	# check if the outputs are compatible
-
-
-
-
 
 def protocol_constraints(proto: Protocol):
 	""" compute i/o constraints of protocol (without semantics) """
