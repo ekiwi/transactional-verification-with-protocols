@@ -29,7 +29,7 @@ def append_mappings(mapping: Dict[str, SmtExpr], signals: Dict[str, Tuple[int, L
 			wave.append(next_wave)
 			if len(next_data) > 0: data.append(next_data)
 
-def protocol_to_wavedrom(proto: Protocol) -> dict:
+def protocol_to_wavedrom(proto: LegacyProtocol) -> dict:
 	""" https://wavedrom.com/editor.html """
 	inputs, outputs = {}, {}
 	get_name = lambda n, e, dir: f"{n} : {dir}(UInt({e.get_type().width}.W))"
@@ -96,7 +96,7 @@ def composition_to_wavedrom(toplevel: str, tran: Transaction, traces: Dict[str, 
 	dd = {'signal': signal, 'config': top['config'], 'edge': edges}
 	return dd
 
-def protocol_to_wavedrom_file(filename: str, proto: Protocol):
+def protocol_to_wavedrom_file(filename: str, proto: LegacyProtocol):
 	dd = protocol_to_wavedrom(proto)
 	with open(filename, 'w') as ff:
 		json.dump(dd, ff, indent=2)

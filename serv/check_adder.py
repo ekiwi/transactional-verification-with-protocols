@@ -20,7 +20,7 @@ class AdderSpec(Spec):
 		a = Symbol('spec_a', BVType(bits))
 		b = Symbol('spec_b', BVType(bits))
 		semantics = {'spec_c': BVAdd(a, b), 'spec_carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
-		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics, proto=Protocol(tt))]
+		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics, proto=LegacyProtocol(tt))]
 		super().__init__(transactions=transactions)
 
 add_v = os.path.join('fork', 'rtl', 'ser_add.v')
@@ -30,7 +30,7 @@ def main() -> int:
 	print(f"Using yosys {version}")
 
 	mod = Module.load('ser_add', [add_v])
-	spec = AdderSpec(8)
+	spec = AdderSpec(32)
 	prob = VerificationProblem(spec=spec, implementation='ser_add')
 
 	#protocol_to_wavedrom_file("adder.json", spec.transactions[0].proto)

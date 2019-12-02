@@ -19,20 +19,20 @@ class Transition:
 	outputs: Dict[str, SmtExpr] = field(default_factory=dict)
 
 @dataclass
-class Protocol:
+class LegacyProtocol:
 	"""
 	 A protocol is a fixed length sequence of transitions.
 	 TODO: - allow backward edges that are waiting for external events (from the environment)
 	       - allow various length paths that could be controlled by the model (instead of the environment)
 	"""
 	transitions : List[Transition] = field(default_factory=lambda: [Transition()])
-	guard: Optional[SmtExpr] = None # determines when this protocol is enabled (guard can only refer to transaction arguments)
+	#guard: Optional[SmtExpr] = None # determines when this protocol is enabled (guard can only refer to transaction arguments)
 
 @dataclass
 class Transaction:
 	# name is used for debugging and error handling
 	name : str
-	proto : List[Protocol] = field(default_factory=lambda: [Protocol()])
+	proto : LegacyProtocol = field(default_factory=LegacyProtocol)
 	# TODO: allow semantics to refer to subtransactions which could then be verified as uninterpreted functions
 	semantics : Dict[str, SmtExpr] = field(default_factory=dict)
 	args: Dict[str, SmtSort] = field(default_factory=dict)

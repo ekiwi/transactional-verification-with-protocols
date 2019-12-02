@@ -16,7 +16,7 @@ rd_data = Symbol('rd_data', BVType(32))
 rs1_data = Symbol('rs1_data', BVType(32))
 rs2_data = Symbol('rs2_data', BVType(32))
 
-protocol = Protocol(
+protocol = LegacyProtocol(
 	[Transition(inputs={'i_go': BV(1,1), 'i_rd_en': BV(0,1)}, outputs={'o_ready': BV(0,1)})] +
 	[Transition(inputs={'i_go': BV(0,1), 'i_rd_en': BV(0,1),
 						'i_rs1_addr': rs1_addr, 'i_rs2_addr': rs2_addr},
@@ -45,11 +45,11 @@ semantics = {
 regfile_spec = Spec(
 	state = {'regs': ArrayType(BVType(5), BVType(32))},
 	transactions=[
-		Transaction("Idle", proto=[Protocol([Transition(
+		Transaction("Idle", proto=LegacyProtocol([Transition(
 			inputs={'i_go': BV(0,1), 'i_rd_en': BV(0,1)},
 			outputs={'o_ready': BV(0,1)} # cool test: comment out this line and the invariance that decode.state == 0 won't hold when verifying serv-top
-		)])]),
-		Transaction("RW", proto=[protocol], semantics=semantics,
+		)])),
+		Transaction("RW", proto=protocol, semantics=semantics,
 					args={'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_addr': BVType(5),
 						  'rd_enable': BVType(1), 'rd_data': BVType(32)},
 					ret_args={'rs1_data': BVType(32), 'rs2_data': BVType(32)}
@@ -77,11 +77,7 @@ regfile_v = os.path.join('fork', 'rtl', 'serv_regfile.v')
 def main() -> int:
 	version = require_yosys()
 
-
-	protocol_constraints(regfile_spec.transactions[1].proto[0])
-
-
-	protocol_to_wavedrom_file("regfile_rw.json", regfile_spec.transactions[1].proto[0])
+	#protocol_to_wavedrom_file("regfile_rw.json", regfile_spec.transactions[1].proto)
 
 	prob = VerificationProblem(spec=regfile_spec, implementation='serv_regfile',
 							   invariances=invariances, mappings=mappings)

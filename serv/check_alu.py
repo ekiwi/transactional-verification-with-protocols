@@ -20,7 +20,7 @@ res = Symbol('res', BVType(32))
 
 def protocol(ctrl_inputs=None):
 	ctrl_inputs = {} if ctrl_inputs is None else ctrl_inputs
-	return Protocol(
+	return LegacyProtocol(
 		[Transition(inputs={'i_en': BV(0,1)})] +
 		[Transition(inputs={'i_rs1': BVExtract(a, ii, ii), 'i_op_b': BVExtract(b, ii, ii),
 							'i_en': BV(1,1), **ctrl_inputs},

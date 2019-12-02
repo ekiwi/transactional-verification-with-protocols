@@ -7,7 +7,7 @@ from itertools import zip_longest
 from typing import Optional
 from pysmt.shortcuts import *
 from .utils import *
-from .spec import Protocol, Transition
+from .spec import LegacyProtocol, Transition
 
 
 def merge_dicts(a: dict, b: dict) -> dict:
@@ -52,7 +52,7 @@ class ProtoBuilder:
 		return ProtoBuilder(mappings=m)
 
 	def finish(self):
-		return Protocol([Transition(t) for t in self.mappings])
+		return LegacyProtocol([Transition(t) for t in self.mappings])
 
 def BitSerial(signal: str, sym, max_bits: Optional[int] = None) -> ProtoBuilder:
 	max_bits = default(max_bits, sym.bv_width())

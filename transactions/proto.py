@@ -118,7 +118,7 @@ def visit_edges(prefix: SmtExpr, e0: ProtocolGraphEdge, e1: ProtocolGraphEdge) -
 
 	# check if the outputs are compatible
 
-def protocol_constraints(proto: Protocol):
+def protocol_constraints(proto: LegacyProtocol):
 	""" compute i/o constraints of protocol (without semantics) """
 
 	# NOTE: this replaces parts of `generate_inputs` in `verifier.py`
