@@ -5,7 +5,8 @@ from .spec import *
 from pysmt.shortcuts import Symbol, And
 from collections import defaultdict
 from .verifier import make_symbols
-from typing import Set
+from typing import Set, Union
+import copy
 
 # protocol processing algorithms
 
@@ -61,6 +62,97 @@ class ProtocolGraphState:
 	next: List[ProtocolGraphTransition]
 
 ProtocolPath = List[ProtocolGraphTransition]
+
+
+@dataclass
+class State:
+	edges: List[Edge] = field(default_factory=list)
+
+@dataclass
+class Edge:
+	inputs: Dict[str, SmtExpr] = field(default_factory=dict)
+	outputs: Dict[str, SmtExpr] = field(default_factory=dict)
+	guards: List[SmtExpr] = field(default_factory=list)
+	next: Optional[State] = None
+
+@dataclass
+class DontCareClass:
+	pass
+DontCare = DontCareClass()
+
+ValueTypes = Union[int, SmtExpr, DontCareClass]
+
+@dataclass
+class OutputSignal:
+	name: str
+	parent: ProtocolBuilder
+	def expect(self, value:ValueTypes):
+		print("EXPECT", self.name, value)
+	def wait(self, value: ValueTypes, max: int):
+		print("WAITFOR", value, "MAX", max)
+
+class ProtocolBuilder:
+	def __init__(self):
+		self._input_constraints: Dict[str, SmtExpr] = {}
+		self._output_constraints: Dict[str, SmtExpr] = {}
+		self._start: State = State()
+		self._states: List[State] = [self._start]
+		self._active: bool = True
+
+	def __setitem__(self, key: str, value: ValueTypes):
+		assert isinstance(key, str)
+		if isinstance(value, DontCareClass):
+			assert key in self._output_constraints
+			self._output_constraints.pop(key)
+		elif isinstance(value, int):
+			# TODO: need to know port width!
+
+	def __getitem__(self, item: str) -> OutputSignal:
+		assert isinstance(item, str)
+		return OutputSignal(name=item, parent=self)
+
+	def inputs(self, **kwargs) -> ProtocolBuilder:
+		assert self._active
+		# TODO
+		return self
+
+	def outputs(self, **kwargs) -> ProtocolBuilder:
+		assert self._active
+		# TODO
+		return self
+
+	def _step(self):
+		print("STEP")
+		edge = Edge(inputs=self._input_constraints, outputs=self._output_constraints)
+		next_states = []
+		for st in self._states:
+			assert len(st.edges) == 0
+			st.edges = [copy.copy(edge)]
+			st.edges[0].next = State()
+			next_states.append(st.edges[0].next)
+		self._states = next_states
+		self._output_constraints = {}
+
+	def step(self, cycles: ValueTypes = 1):
+		if isinstance(cycles, int):
+			assert cycles >= 0
+			for _ in range(cycles):
+				self._step()
+		else:
+			assert isinstance(cycles, SmtExpr)
+			assert cycles.get_type().is_bv_type()
+			bits = cycles.get_type().width
+			path_factor = (1 << bits)
+
+	def finish(self) -> State:
+		assert self._active
+		assert len(self._input_constraints) > 0 or len(self._output_constraints) > 0, "No constraints in last cycle!"
+		self.step()
+		self._active = False
+		return self._start
+
+
+
 
 
 class ProtocolMerger:
