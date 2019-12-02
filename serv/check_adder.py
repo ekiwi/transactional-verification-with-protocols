@@ -21,7 +21,7 @@ class AdderSpec(Spec):
 		b = Symbol('spec_b', BVType(bits))
 		semantics = {'spec_c': BVAdd(a, b), 'spec_carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
 		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics, proto=LegacyProtocol(tt))]
-		super().__init__(transactions=transactions)
+		super().__init__(transactions=transactions, idle=None)
 
 add_v = os.path.join('fork', 'rtl', 'ser_add.v')
 

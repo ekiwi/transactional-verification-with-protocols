@@ -38,8 +38,6 @@ alu_spec = Spec(transactions=[
 	make_op("Or",  BVOr,  {'i_bool_op': BOOL_OP_OR,  'i_rd_sel': ALU_RESULT_BOOL}),
 	make_op("Xor", BVXor, {'i_bool_op': BOOL_OP_XOR, 'i_rd_sel': ALU_RESULT_BOOL}),
 	make_op("And", BVAnd, {'i_bool_op': BOOL_OP_AND, 'i_rd_sel': ALU_RESULT_BOOL}),
-	# TODO: potentially special case IDLE
-	Transaction("Idle"),
 ])
 
 # TODO: fix shifts

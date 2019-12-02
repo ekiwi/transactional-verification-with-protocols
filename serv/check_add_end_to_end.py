@@ -40,9 +40,9 @@ regs_n = Ite(Equals(rd, BV(0, 5)), regs, Store(regs, rd, c))
 semantics = {'regs': regs_n}
 
 serv_spec = Spec(state={'regs': regs.symbol_type()}, transactions=[
-	Transaction("Add", args={'rs1': BVType(5), 'rs2': BVType(5), 'rd': BVType(5)}, semantics=semantics, proto=protocol),
-	Transaction("Idle", proto=LegacyProtocol([Transition(inputs={'i_ibus_ack': BV(0, 1), **always})]))
-])
+	Transaction("Add", args={'rs1': BVType(5), 'rs2': BVType(5), 'rd': BVType(5)}, semantics=semantics, proto=protocol)],
+	idle=LegacyProtocol([Transition(inputs={'i_ibus_ack': BV(0, 1), **always})])
+)
 
 # common invariances
 other_inv = [
