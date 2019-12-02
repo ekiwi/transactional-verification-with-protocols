@@ -42,6 +42,7 @@ class Transaction:
 class Spec:
 	state : Dict[str, SmtSort] = field(default_factory=dict)
 	transactions : List[Transaction] = field(default_factory=list)
+	idle: Transition = field(default_factory=Transition)
 
 @dataclass
 class StateMapping:

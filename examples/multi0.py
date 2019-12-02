@@ -7,24 +7,36 @@ from transactions import *
 from functools import reduce
 
 
+class ProtocolBuilder:
+	def __init__(self):
+		pass
+
+
 data_in = Symbol('data_in', BVType(32))
 data_out = Symbol('data_out', BVType(32))
 
-idle =  Transition(inputs={'start': BV(0,1)}, outputs={'done': BV(0,1)})
-def protocol(delay=0):
-	start = Transition(inputs={'start': BV(1,1), 'in': data_in}, outputs={'done': BV(0,1)})
-	done = Transition(inputs={'start': BV(0, 1)}, outputs={'done': BV(1, 1), 'out': data_out})
-	return Protocol([start] + [idle] * delay + [done])
+##############################
+p = ProtocolBuilder()
+p.start = 1
+p.inp = data_in
+p.done.expect(0)
+p.step()
 
+p.start = 0
+p.inp = DontCare
+
+p.done.wait(1, max=4)
+p.out.expect(data_out)
+##############################
+
+protocol = p.finish()
 semantics = { 'data_out': data_in }
 args={'data_in': BVType(32)}
 ret_args={'data_out': BVType(32)}
 
 spec = Spec(
-	transactions=[Transaction("Idle", proto=[Protocol([idle])]),
-	Transaction(f"Delay", proto=[protocol(delay=ii)  for ii in range(4)],
-				semantics=semantics, args=args, ret_args=ret_args)
-	 ]
+	transactions=[Transaction(f"Delay", proto=protocol, semantics=semantics, args=args, ret_args=ret_args)],
+	idle=Transition(inputs={'start': BV(0,1)}, outputs={'done': BV(0,1)}),
 )
 
 invariances = [
