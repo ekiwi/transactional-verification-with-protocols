@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from .spec import *
-from pysmt.shortcuts import Symbol
+from pysmt.shortcuts import Symbol, And
 from collections import defaultdict
+from typing import Set
 
 # protocol processing algorithms
 
@@ -41,11 +42,38 @@ class ProtocolGraph:
 
 @dataclass
 class ProtocolGraphEdge:
-	pass
+	guards: List[SmtExpr]
+	input_constraints: SmtExpr
+	input_mappings: Dict[str, ]
+	inputs: Dict[str, SmtExpr]
+	outputs: Dict[str, SmtExpr]
+	transactions: Set[Transaction]
+
 
 @dataclass
 class ProtocolGraphState:
 	pass
+
+def is_unsat(expr: SmtExpr) -> bool:
+	return False
+
+
+def visit_edges(prefix: SmtExpr, e0: ProtocolGraphEdge, e1: ProtocolGraphEdge) -> List[ProtocolGraphEdge]:
+	# check if there is an input that satisfies both edges
+	input_constraints = And(prefix, And(e0.input_constraints, e1.input_constraints))
+	common_input_exists = not is_unsat(input_constraints)
+
+	# if the edges are mutually exclusive, we stop merging
+	if not common_input_exists:
+		return [e0, e1]
+
+	# check to see if the two edges refer to the same transaction
+	same_transaction = len(e0.transactions) == len(e1.transactions) == 1 and e0.transactions[0] == e1.transactions[0]
+
+	# check if the outputs are compatible
+
+
+
 
 
 def protocol_constraints(proto: Protocol):
