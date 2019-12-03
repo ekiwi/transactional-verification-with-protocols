@@ -108,11 +108,11 @@ def is_valid(e: SmtExpr) -> bool:
 	return out == 'unsat'
 
 def legacy_converter(proto: LegacyProtocol) -> Protocol:
-	start = State()
+	start = ProtocolState()
 	for tt in proto.transitions:
-		edge = Edge(inputs=tt.inputs, outputs=tt.outputs)
+		edge = ProtocolEdge(inputs=tt.inputs, outputs=tt.outputs)
 		start.edges = [edge]
-		start = State()
+		start = ProtocolState()
 		edge.next = start
 	return Protocol(start)
 
