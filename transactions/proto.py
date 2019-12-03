@@ -4,7 +4,7 @@ from __future__ import annotations
 from .spec import *
 from pysmt.shortcuts import Symbol, And, BV, BVType
 from collections import defaultdict
-from typing import Set, Union
+from typing import Set, Union, Iterator
 import copy
 
 def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
@@ -74,15 +74,14 @@ DontCare = DontCareClass()
 
 ValueTypes = Union[bool, int, SmtExpr, DontCareClass]
 
-def protocol_edges(proto: Protocol) -> List[Edge]:
-	""" returns list of edges in protocol, only works if protocol is a tree! """
-	edges = []
-	states = [proto.start]
+def protocol_edges(proto: Protocol) -> Iterator[Edge]:
+	""" returns iterator of edges in protocol, only works if protocol is a tree! """
+	states: List[State] = [proto.start]
 	while len(states) > 0:
 		s = states.pop()
-		edges += s.edges
-		states += [e.next for e in s.edges]
-	return edges
+		for ed in s.edges:
+			yield ed
+			states.append(ed.next)
 
 @dataclass
 class OutputSignal:
