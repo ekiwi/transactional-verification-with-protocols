@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, Callable, List, Tuple, Dict, Any
+from typing import Optional, Callable, List, Tuple, Dict, Any, Union
 import pysmt.fnode, pysmt.typing
 
 """ an SmtExpr is represented by a pysmt node """
@@ -10,6 +10,20 @@ SmtExpr = pysmt.fnode.FNode
 
 """ a SmtSort is represented by a pysmt sort type """
 SmtSort = pysmt.typing.PySMTType
+
+@dataclass
+class Protocol:
+	start: State
+
+@dataclass
+class State:
+	edges: List[Edge] = field(default_factory=list)
+
+@dataclass
+class Edge:
+	inputs: Dict[str, SmtExpr] = field(default_factory=dict)
+	outputs: Dict[str, SmtExpr] = field(default_factory=dict)
+	next: Optional[State] = None
 
 @dataclass
 class Transition:
@@ -32,7 +46,7 @@ class LegacyProtocol:
 class Transaction:
 	# name is used for debugging and error handling
 	name : str
-	proto : LegacyProtocol = field(default_factory=LegacyProtocol)
+	proto : Union[LegacyProtocol, Protocol] = field(default_factory=LegacyProtocol)
 	# TODO: allow semantics to refer to subtransactions which could then be verified as uninterpreted functions
 	semantics : Dict[str, SmtExpr] = field(default_factory=dict)
 	args: Dict[str, SmtSort] = field(default_factory=dict)
