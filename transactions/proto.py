@@ -64,17 +64,7 @@ class ProtocolGraphState:
 ProtocolPath = List[ProtocolGraphTransition]
 
 
-@dataclass
-class State:
-	edges: List[Edge] = field(default_factory=list)
-
-@dataclass
-class Edge:
-	inputs: Dict[str, SmtExpr] = field(default_factory=dict)
-	outputs: Dict[str, SmtExpr] = field(default_factory=dict)
-	guards: List[SmtExpr] = field(default_factory=list)
-	next: Optional[State] = None
-
+###################### New Types
 @dataclass
 class DontCareClass:
 	pass
@@ -192,16 +182,12 @@ class ProtocolBuilder:
 			assert cycles.get_type().is_bv_type()
 			raise NotImplementedError("A symbolic number of steps is not supported in the current verson!")
 
-	def finish(self) -> State:
+	def finish(self) -> Protocol:
 		assert self._active
 		assert len(self._input_constraints) > 0 or len(self._output_constraints) > 0, "No constraints in last cycle!"
 		self.step()
 		self._active = False
-		return self._start
-
-
-
-
+		return Protocol(self._start)
 
 class ProtocolMerger:
 	def __init__(self, tran0: Transaction, tran1: Transaction):

@@ -84,7 +84,7 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 		tran_index[tran.name] = tran
 		check_transaction(tran, mod, arch_state_symbols)
 
-def check_protocol(tran: Transaction, mod: RtlModule, proto: LegacyProtocol):
+def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
 	assert len(proto.transitions) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
 	# TODO: reenable!
 	#if proto.guard is not None:
@@ -106,6 +106,16 @@ def is_valid(e: SmtExpr) -> bool:
 	out, delta = solve.check_sat(filename=f.name, assertions=[Not(e)], funs=funs)
 	return out == 'unsat'
 
+def legacy_converter(proto: LegacyProtocol) -> Protocol:
+	start = State()
+	for tt in proto.transitions:
+		edge = Edge(inputs=tt.inputs, outputs=tt.outputs)
+		start.edges = [edge]
+		start = State()
+		edge.next = start
+	return Protocol(start)
+
+
 def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dict[str, SmtSort]):
 	require_scalar(tran.args, "Transaction argument")
 	require_scalar(tran.ret_args, "Transaction return argument")
@@ -126,20 +136,7 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	unknown_outputs = set(tran.semantics.keys()) - output_names
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
 
-	assert isinstance(tran.proto, LegacyProtocol), f"Currently only LegacyProtocols are supported! {tran.proto}"
+	if isinstance(tran.proto, LegacyProtocol):
+		tran.proto = legacy_converter(tran.proto)
 	check_protocol(tran, mod, tran.proto)
 	return
-
-	# check protocols
-	for proto in tran.proto:
-		check_protocol(tran, mod, proto)
-	# ensure that the protocols do not restrict the arguments
-	proto_guards = [pp.guard for pp in tran.proto]
-	if not any(gg is None for gg in proto_guards):
-		guard_dis = functools.reduce(Or, proto_guards)
-		# we need the disjunction of all guards to always be 1 in order to ensure that all transaction arguments
-		# are valid
-		assert is_valid(guard_dis), f"Protocol guards are not allowed to restrict the input space!: {proto_guards}"
-
-
-
