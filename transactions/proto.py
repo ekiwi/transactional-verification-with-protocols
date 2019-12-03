@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from .spec import *
-from pysmt.shortcuts import Symbol, And
+from pysmt.shortcuts import Symbol, And, BV, BVType
 from collections import defaultdict
 from .verifier import make_symbols
 from typing import Set, Union
@@ -80,60 +80,109 @@ class DontCareClass:
 	pass
 DontCare = DontCareClass()
 
-ValueTypes = Union[int, SmtExpr, DontCareClass]
+ValueTypes = Union[bool, int, SmtExpr, DontCareClass]
 
 @dataclass
 class OutputSignal:
 	name: str
 	parent: ProtocolBuilder
 	def expect(self, value:ValueTypes):
-		print("EXPECT", self.name, value)
+		self.parent._expect(self.name, value)
 	def wait(self, value: ValueTypes, max: int):
-		print("WAITFOR", value, "MAX", max)
+		self.parent._wait(self.name, value, max)
+
+def _get_value(typ: SmtSort, value: ValueTypes) -> Optional[SmtExpr]:
+	if isinstance(value, DontCareClass):
+		return None
+	elif isinstance(value, int) or isinstance(value, bool):
+		return BV(int(value), typ.width)
+	else:
+		assert typ == value.get_type()
+		return value
 
 class ProtocolBuilder:
-	def __init__(self):
+	def __init__(self, mod: RtlModule):
+		self._mod = mod
 		self._input_constraints: Dict[str, SmtExpr] = {}
 		self._output_constraints: Dict[str, SmtExpr] = {}
 		self._start: State = State()
 		self._states: List[State] = [self._start]
 		self._active: bool = True
 
-	def __setitem__(self, key: str, value: ValueTypes):
-		assert isinstance(key, str)
-		if isinstance(value, DontCareClass):
-			assert key in self._output_constraints
-			self._output_constraints.pop(key)
-		elif isinstance(value, int):
-			# TODO: need to know port width!
+	def __setitem__(self, name: str, value: ValueTypes):
+		assert isinstance(name, str)
+		assert name in self._mod.inputs, f"{list(self._mod.inputs.keys())}"
+		vv = _get_value(self._mod.inputs[name], value)
+		if vv is None:
+			assert name in self._input_constraints
+			self._input_constraints.pop(name)
+		else:
+			self._input_constraints[name] = vv
 
-	def __getitem__(self, item: str) -> OutputSignal:
-		assert isinstance(item, str)
-		return OutputSignal(name=item, parent=self)
+	def __getitem__(self, name: str) -> OutputSignal:
+		assert isinstance(name, str)
+		assert name in self._mod.outputs, f"{list(self._mod.outputs.keys())}"
+		return OutputSignal(name=name, parent=self)
+
+	def _wait(self, name: str, value: ValueTypes, max: int):
+		assert len(self._output_constraints) == 0, f"{list(self._output_constraints)}"
+		assert name in self._mod.outputs, f"{list(self._mod.outputs.keys())}"
+		typ = self._mod.outputs[name]
+		assert typ == BVType(1), f"wait only supported for 1-bit signals for now {name} : {typ}"
+		assert 1024 > max > 0, f"{max} is too big or too small"
+
+		wait_states = self._states
+		tru = Edge(inputs=self._input_constraints, outputs={name: value})
+		fals = Edge(inputs=self._input_constraints, outputs={name: value})
+
+
+	def _if(self, pin: str, value: ValueTypes, body):
+		# remember current states and inputs/outputs for backtracking after the body
+		_inp = copy.copy(self._input_constraints)
+		_out = copy.copy(self._output_constraints)
+		_states = copy.copy(self._states)
+
+
+	def _expect(self, name: str, value: ValueTypes):
+		assert name in self._mod.outputs, f"{list(self._mod.outputs.keys())}"
+		vv = _get_value(self._mod.outputs[name], value)
+		if vv is None:
+			assert False, "No way to remove output constraints!"
+		else:
+			self._output_constraints[name] = vv
 
 	def inputs(self, **kwargs) -> ProtocolBuilder:
 		assert self._active
-		# TODO
+		for name, value in kwargs.items():
+			self.__setitem__(name, value)
 		return self
 
 	def outputs(self, **kwargs) -> ProtocolBuilder:
 		assert self._active
-		# TODO
+		for name, value in kwargs.items():
+			self._expect(name, value)
 		return self
 
-	def _step(self):
-		print("STEP")
-		edge = Edge(inputs=self._input_constraints, outputs=self._output_constraints)
+	def _advance_states(self, edges: List[Edge]):
+		assert all(e.next is None for e in edges), f"{edges}"
+		assert len(edges) > 0, f"{edges}"
 		next_states = []
 		for st in self._states:
 			assert len(st.edges) == 0
-			st.edges = [copy.copy(edge)]
-			st.edges[0].next = State()
-			next_states.append(st.edges[0].next)
+			st.edges = [copy.copy(ed) for ed in edges]
+			for ed in st.edges:
+				ed.next = State()
+				next_states.append(ed.next)
 		self._states = next_states
+
+
+	def _step(self):
+		edges = [Edge(inputs=self._input_constraints, outputs=self._output_constraints)]
+		self._advance_states(edges)
 		self._output_constraints = {}
 
 	def step(self, cycles: ValueTypes = 1):
+		assert self._active
 		if isinstance(cycles, int):
 			assert cycles >= 0
 			for _ in range(cycles):
@@ -141,8 +190,7 @@ class ProtocolBuilder:
 		else:
 			assert isinstance(cycles, SmtExpr)
 			assert cycles.get_type().is_bv_type()
-			bits = cycles.get_type().width
-			path_factor = (1 << bits)
+			raise NotImplementedError("A symbolic number of steps is not supported in the current verson!")
 
 	def finish(self) -> State:
 		assert self._active

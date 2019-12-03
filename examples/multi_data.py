@@ -7,21 +7,26 @@ from transactions import *
 from functools import reduce
 
 
+# TODO:
+
 data_in = Symbol('data_in', BVType(32))
 data_out = Symbol('data_out', BVType(32))
 
 ##############################
 p = ProtocolBuilder()
-p.start = 1
-p.inp = data_in
-p.done.expect(0)
+p['start'] = 1
+p['inp'] = data_in
+p['done'].expect(0)
 p.step()
 
-p.start = 0
-p.inp = DontCare
+p['start'] = 0
+p['inp'] = DontCare
 
-p.step(BVExtract(data_in, 1, 0))
-p.out.expect(data_out)
+# TODO: Data dependent delays will NOT be supported in the CAV'20 version.
+#       For now we need to fall back to non deterministic modelling.
+#p.step(BVExtract(data_in, 1, 0))
+p['done'].wait(1, max=4)
+p['out'].expect(data_out)
 ##############################
 
 protocol = p.finish()
