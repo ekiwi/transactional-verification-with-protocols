@@ -4,9 +4,11 @@ from __future__ import annotations
 from .spec import *
 from pysmt.shortcuts import Symbol, And, BV, BVType
 from collections import defaultdict
-from .verifier import make_symbols
 from typing import Set, Union
 import copy
+
+def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
+	return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
 
 # protocol processing algorithms
 
@@ -71,6 +73,16 @@ class DontCareClass:
 DontCare = DontCareClass()
 
 ValueTypes = Union[bool, int, SmtExpr, DontCareClass]
+
+def protocol_edges(proto: Protocol) -> List[Edge]:
+	""" returns list of edges in protocol, only works if protocol is a tree! """
+	edges = []
+	states = [proto.start]
+	while len(states) > 0:
+		s = states.pop()
+		edges += s.edges
+		states += [e.next for e in s.edges]
+	return edges
 
 @dataclass
 class OutputSignal:

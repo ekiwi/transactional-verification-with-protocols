@@ -4,10 +4,11 @@
 # code to verify the well-formedness (i.e. semantic checks) of a verification problem and spec
 
 from .spec import *
-from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Or, Not
+from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Not
 from typing import Optional
-import functools, tempfile
+import tempfile
 from .smt2 import Solver
+from .proto import protocol_edges
 
 
 def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, Any], msg: str, tpe: Optional[SmtSort] = None):
@@ -85,16 +86,16 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 		check_transaction(tran, mod, arch_state_symbols)
 
 def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
-	assert len(proto.transitions) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
+	assert len(proto.start.edges) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
 	# TODO: reenable!
 	#if proto.guard is not None:
 	#	check_smt_expr(proto.guard, tran.args, tpe=BOOL, msg="Protocol guards may only refer to transaction arguments.")
-	for tt in proto.transitions:
-		for pin, expr in tt.inputs.items():
+	for ee in protocol_edges(proto):
+		for pin, expr in ee.inputs.items():
 			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
 			check_smt_expr(expr, tran.args, tpe=mod.inputs[pin],
 						   msg="Input pins may be bound to constants or transaction arguments.")
-		for pin, expr in tt.outputs.items():
+		for pin, expr in ee.outputs.items():
 			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
 			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
 						   msg="Output pins may be bound to constants or transaction return arguments.")
