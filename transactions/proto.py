@@ -74,9 +74,9 @@ DontCare = DontCareClass()
 
 ValueTypes = Union[bool, int, SmtExpr, DontCareClass]
 
-def protocol_edges(proto: Protocol) -> Iterator[Edge]:
+def protocol_edges(proto: Protocol) -> Iterator[ProtocolEdge]:
 	""" returns iterator of edges in protocol, only works if protocol is a tree! """
-	states: List[State] = [proto.start]
+	states: List[ProtocolState] = [proto.start]
 	while len(states) > 0:
 		s = states.pop()
 		for ed in s.edges:
@@ -106,8 +106,8 @@ class ProtocolBuilder:
 		self._mod = mod
 		self._input_constraints: Dict[str, SmtExpr] = {}
 		self._output_constraints: Dict[str, SmtExpr] = {}
-		self._start: State = State()
-		self._states: List[State] = [self._start]
+		self._start: ProtocolState = ProtocolState()
+		self._states: List[ProtocolState] = [self._start]
 		self._active: bool = True
 
 	def __setitem__(self, name: str, value: ValueTypes):
@@ -133,8 +133,8 @@ class ProtocolBuilder:
 		assert 1024 > max > 0, f"{max} is too big or too small"
 
 		wait_states = self._states
-		tru = Edge(inputs=self._input_constraints, outputs={name: value})
-		fals = Edge(inputs=self._input_constraints, outputs={name: value})
+		tru = ProtocolEdge(inputs=self._input_constraints, outputs={name: value})
+		fals = ProtocolEdge(inputs=self._input_constraints, outputs={name: value})
 
 
 	def _if(self, pin: str, value: ValueTypes, body):
@@ -164,7 +164,7 @@ class ProtocolBuilder:
 			self._expect(name, value)
 		return self
 
-	def _advance_states(self, edges: List[Edge]):
+	def _advance_states(self, edges: List[ProtocolEdge]):
 		assert all(e.next is None for e in edges), f"{edges}"
 		assert len(edges) > 0, f"{edges}"
 		next_states = []
@@ -172,13 +172,13 @@ class ProtocolBuilder:
 			assert len(st.edges) == 0
 			st.edges = [copy.copy(ed) for ed in edges]
 			for ed in st.edges:
-				ed.next = State()
+				ed.next = ProtocolState()
 				next_states.append(ed.next)
 		self._states = next_states
 
 
 	def _step(self):
-		edges = [Edge(inputs=self._input_constraints, outputs=self._output_constraints)]
+		edges = [ProtocolEdge(inputs=self._input_constraints, outputs=self._output_constraints)]
 		self._advance_states(edges)
 		self._output_constraints = {}
 

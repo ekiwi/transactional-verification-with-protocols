@@ -13,17 +13,17 @@ SmtSort = pysmt.typing.PySMTType
 
 @dataclass
 class Protocol:
-	start: State
+	start: ProtocolState
 
 @dataclass
-class State:
-	edges: List[Edge] = field(default_factory=list)
+class ProtocolState:
+	edges: List[ProtocolEdge] = field(default_factory=list)
 
 @dataclass
-class Edge:
+class ProtocolEdge:
 	inputs: Dict[str, SmtExpr] = field(default_factory=dict)
 	outputs: Dict[str, SmtExpr] = field(default_factory=dict)
-	next: Optional[State] = None
+	next: Optional[ProtocolState] = None
 
 @dataclass
 class Transition:
