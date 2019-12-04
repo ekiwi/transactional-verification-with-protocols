@@ -57,7 +57,7 @@ class Spec:
 	state : Dict[str, SmtSort] = field(default_factory=dict)
 	transactions : List[Transaction] = field(default_factory=list)
 	# input/output constraints when no other transaction is active
-	idle: Optional[LegacyProtocol] = field(default_factory=LegacyProtocol)
+	idle: Optional[Union[LegacyProtocol, Protocol]] = field(default_factory=LegacyProtocol)
 
 @dataclass
 class StateMapping:
