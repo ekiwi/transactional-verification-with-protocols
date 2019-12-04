@@ -22,6 +22,9 @@ p['start'] = 0
 p['inp'] = DontCare
 
 p['done'].wait(1, max=4)
+# while p['done'] != 1:
+#   p.step()
+#
 p['out'].expect(data_out)
 ##############################
 
