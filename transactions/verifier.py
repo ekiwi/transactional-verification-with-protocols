@@ -358,6 +358,11 @@ class Verifier:
 				check.assert_at(cycles, ii)
 
 	def proof_all(self):
+		from .proto import to_verification_graph
+		for tran in self.prob.spec.transactions:
+			to_verification_graph(tran.proto, tran, "")
+		return
+		# TODO: reenable
 		self.verify_inductive_base_case()
 		for tran in self.prob.spec.transactions:
 			traces = self.find_transaction_trace(tran, self.prob.submodules)
