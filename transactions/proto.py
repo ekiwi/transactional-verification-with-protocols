@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from .spec import *
-from pysmt.shortcuts import Symbol, And, BV, BVType
+from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals
 from collections import defaultdict
 from typing import Set, Union, Iterator
 import copy
@@ -66,32 +66,96 @@ class ProtocolGraphState:
 ProtocolPath = List[ProtocolGraphTransition]
 
 
+
+
+
+
+
 ##### Verification Protocol
+@dataclass
+class VeriPath:
+	name: str
+	transaction: Transaction
+	edges: List[VeriEdge]
 
 @dataclass
-class VerificationState:
-	# set of possible transactions
-	transactions: Set[Transaction]
-	edges: List[DeterministicEdge] = field(default_factory=list)
+class VeriEdge:
+	input_constraints: List[SmtExpr]
+	output_constraints: List[SmtExpr]
+	arg_mapping: List[SmtExpr]
+	ret_arg_mapping: List[SmtExpr]
 
 @dataclass
-class DeterministicEdge:
-	""" Edge that has unique input requirements """
-	inputs: Dict[str, int]
-	next: Union[VerificationState, List[NonDeterministicEdge]]
-
-@dataclass
-class NonDeterministicEdge:
-	""" Edge that has unique output requirements """
-	output: Dict[str, int]
-	next: VerificationState
+class VeriSpec:
+	paths: List[VeriPath]
+	edges: List[VeriEdge]
 
 
-def filter_const_constraints(constraints: Dict[str, SmtExpr]) -> Dict[str, int]:
-	return {name: int(value.bv_bin_str(), 2) for name, value in constraints.items() if value.is_bv_constant() }
+# variable -> interval -> (cycle, signal_expr)
+Var2InputType = Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, Signal]]]]
 
-def to_verification_graph(proto: Protocol, tran: Transaction):
-	states: List[ProtocolState] = [proto.start]
+def extract_if_not_redundant(expr: SmtExpr, msb: int, lsb: int) -> SmtExpr:
+	assert expr.get_type().is_bv_type(), f"{expr} : {expr.get_type()}"
+	assert msb >= lsb >= 0, f"Failed: {msb} >= {lsb} >= 0"
+	is_full = lsb == 0 and msb + 1 == expr.get_type().width
+	if is_full: return expr
+	else:       return BVExtract(expr, start=lsb, end=msb)
+
+def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], vars: Set[Symbol], var2inputs: Var2InputType) -> Tuple[List[SmtExpr], List[SmtExpr]]:
+	""" works for input or output signals """
+
+	constraints: List[SmtExpr] = []
+	mappings: List[SmtExpr] = []
+
+	for signal_name, expr in signals.items():
+		assert expr.get_type().is_bv_type(), f"{expr} : {expr.get_type()}"
+
+		expr_width = expr.get_type().width
+		sig = Symbol(io_prefix + signal_name, BVType(expr_width))
+
+		# iterate over all "bit-bindings" in the expression
+		# this assumes that all the expression does is map signal bits to a constant or a variable bit
+		# something like: Cat(v0[2:1], 0b00, v1[3:1])
+		for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in FindVariableIntervals.find(expr):
+
+			sig_expr = extract_if_not_redundant(sig, msb=signal_msb, lsb= signal_lsb)
+
+			# if this is a mapping to bits of a variable
+			if var.is_symbol():
+				assert var in vars, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var)}"
+				var_expr = extract_if_not_redundant(var, msb=var_msb, lsb=var_lsb)
+
+				# check to see if these particular bits of `var` have been mapped before
+				# (this assumes that there will be no partially overlapping bit mappings)
+				if var in var2inputs and (var_msb, var_lsb) in var2inputs[var]:
+					# has been mapped before => just enforce equality
+					constraints.append(Equals(sig_expr, var_expr))
+				else:
+					# first mapping => generate variable mapping
+					mappings.append(Equals(sig_expr, var_expr))
+
+			# if this is a mapping to a constant
+			else:
+				assert var_lsb == 0 and var_msb + 1 == var.get_type().width, f"Expect constants to be simplified!"
+				constraints.append(Equals(sig_expr, var))
+
+	return constraints, mappings
+
+
+def visit_edge(io_prefix: str, prefix: List[VeriEdge], tran: Transaction, edge: ProtocolEdge, var2inputs: Var2InputType):
+	# the current transition id is the prefix length
+	ii = len(prefix)
+
+	argmap = {} # TODO
+	retargmap = {}  # TODO
+	input_constraints,  input_mappings  = find_constraints_and_mappings(io_prefix, edge.inputs,  tran.args, argmap)
+	output_constraints, output_mappings = find_constraints_and_mappings(io_prefix, edge.outputs, tran.ret_args, retargmap)
+
+
+
+
+def to_verification_graph(proto: Protocol, tran: Transaction) -> VeriPath:
+	# TODO: visit edges
 
 
 
