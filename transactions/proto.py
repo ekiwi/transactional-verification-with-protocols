@@ -299,6 +299,7 @@ class ProtocolBuilder:
 		edges = [ProtocolEdge(inputs=self._input_constraints, outputs=self._output_constraints)]
 		self._advance_states(edges)
 		self._output_constraints = {}
+		self._input_constraints = copy.copy(self._input_constraints)
 
 	def step(self, cycles: ValueTypes = 1):
 		assert self._active
