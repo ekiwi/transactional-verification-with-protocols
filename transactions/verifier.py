@@ -365,6 +365,10 @@ class Verifier:
 			self.verify_transaction(tran, traces)
 			self.verify_inductive_step(tran, traces)
 
+
+## TODO: generate verification problem from graph
+
+
 from pysmt.walkers import DagWalker
 
 class FindVariableIntervals(DagWalker):

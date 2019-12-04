@@ -66,6 +66,36 @@ class ProtocolGraphState:
 ProtocolPath = List[ProtocolGraphTransition]
 
 
+##### Verification Protocol
+
+@dataclass
+class VerificationState:
+	# set of possible transactions
+	transactions: Set[Transaction]
+	edges: List[DeterministicEdge] = field(default_factory=list)
+
+@dataclass
+class DeterministicEdge:
+	""" Edge that has unique input requirements """
+	inputs: Dict[str, int]
+	next: Union[VerificationState, List[NonDeterministicEdge]]
+
+@dataclass
+class NonDeterministicEdge:
+	""" Edge that has unique output requirements """
+	output: Dict[str, int]
+	next: VerificationState
+
+
+def filter_const_constraints(constraints: Dict[str, SmtExpr]) -> Dict[str, int]:
+	return {name: int(value.bv_bin_str(), 2) for name, value in constraints.items() if value.is_bv_constant() }
+
+def to_verification_graph(proto: Protocol, tran: Transaction):
+	states: List[ProtocolState] = [proto.start]
+
+
+
+
 ###################### New Types
 @dataclass
 class DontCareClass:
