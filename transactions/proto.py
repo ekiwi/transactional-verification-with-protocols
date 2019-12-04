@@ -198,6 +198,7 @@ def protocol_edges(proto: Protocol) -> Iterator[ProtocolEdge]:
 	while len(states) > 0:
 		s = states.pop()
 		for ed in s.edges:
+			assert isinstance(ed, ProtocolEdge), f"{ed} in {s}"
 			yield ed
 			states.append(ed.next)
 
@@ -248,12 +249,23 @@ class ProtocolBuilder:
 		assert name in self._mod.outputs, f"{list(self._mod.outputs.keys())}"
 		typ = self._mod.outputs[name]
 		assert typ == BVType(1), f"wait only supported for 1-bit signals for now {name} : {typ}"
+		assert value in {1,0}
 		assert 1024 > max > 0, f"{max} is too big or too small"
+		not_value = BV({1:0, 0:1}[value], 1)
 
-		wait_states = self._states
-		tru = ProtocolEdge(inputs=self._input_constraints, outputs={name: value})
-		fals = ProtocolEdge(inputs=self._input_constraints, outputs={name: value})
+		new_states = []
+		for state in self._states:
+			# for every state, append the correct number of wait states
+			wait_states = [ProtocolState() for _ in range(max)]
+			new_states += wait_states
+			sts = [state] + wait_states
+			for ii in range(max):
+				sts[ii].edges += [ProtocolEdge(inputs=self._input_constraints, outputs={name: not_value})]
+				sts[ii].edges[-1].next = sts[ii+1]
 
+		self._states += new_states
+		self._output_constraints = {name: BV(value, 1)}
+		self._input_constraints = copy.copy(self._input_constraints)
 
 	def _if(self, pin: str, value: ValueTypes, body):
 		# remember current states and inputs/outputs for backtracking after the body
@@ -282,22 +294,20 @@ class ProtocolBuilder:
 			self._expect(name, value)
 		return self
 
-	def _advance_states(self, edges: List[ProtocolEdge]):
-		assert all(e.next is None for e in edges), f"{edges}"
-		assert len(edges) > 0, f"{edges}"
+	def _advance_states(self, edge: ProtocolEdge):
+		assert edge.next is None, f"{edge}"
+
 		next_states = []
 		for st in self._states:
-			assert len(st.edges) == 0
-			st.edges = [copy.copy(ed) for ed in edges]
-			for ed in st.edges:
-				ed.next = ProtocolState()
-				next_states.append(ed.next)
+			ed = copy.copy(edge)
+			st.edges += [ed]
+			ed.next = ProtocolState()
+			next_states.append(ed.next)
 		self._states = next_states
 
-
 	def _step(self):
-		edges = [ProtocolEdge(inputs=self._input_constraints, outputs=self._output_constraints)]
-		self._advance_states(edges)
+		edge = ProtocolEdge(inputs=self._input_constraints, outputs=self._output_constraints)
+		self._advance_states(edge)
 		self._output_constraints = {}
 		self._input_constraints = copy.copy(self._input_constraints)
 
