@@ -129,14 +129,15 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 
 			# if this is a mapping to bits of a variable
 			if var.is_symbol():
-				assert var in var_map, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var_map.keys())}"
+				var_name = var.symbol_name()
+				assert var_name in var_map, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var_map.keys())}"
 				var_expr = extract_if_not_redundant(var, msb=var_msb, lsb=var_lsb)
 
 				current_bits = range_to_bitmap(var_msb, var_lsb)
-				existing_bits = var_map[var.symbol_name()]
+				existing_bits = var_map[var_name]
 
 				# update new variable mapping
-				new_var_map[var.symbol_name()] = existing_bits | current_bits
+				new_var_map[var_name] = existing_bits | current_bits
 
 				if current_bits & existing_bits == 0:
 					# these bits have never been mapped before => generate new mapping
@@ -158,18 +159,27 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 	return constraints, mappings, new_var_map
 
 
-def visit_edge(io_prefix: str, prefix: List[VeriEdge], tran: Transaction, edge: ProtocolEdge, arg_map: Dict[str, int], ret_arg_map: Dict[str, int]):
+def visit_edge(io_prefix: str, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], edge: ProtocolEdge):
 	# the current transition id is the prefix length
 	ii = len(prefix)
 
-	input_constraints,  input_mappings, arg_map  = find_constraints_and_mappings(io_prefix, edge.inputs, arg_map)
-	output_constraints, output_mappings, ret_arg_map = find_constraints_and_mappings(io_prefix, edge.outputs, ret_arg_map)
+	input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(io_prefix, edge.inputs, arg_map)
+	output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(io_prefix, edge.outputs, ret_arg_map)
 
+	new_edge = VeriEdge(input_constraints, output_constraints, input_mappings, output_mappings)
 
+	print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
+	visit_state(io_prefix, prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
 
+def visit_state(io_prefix: str, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], state: ProtocolState):
+	for edge in state.edges:
+		visit_edge(io_prefix, prefix, arg_map, ret_arg_map, edge)
 
-def to_verification_graph(proto: Protocol, tran: Transaction) -> VeriPath:
-	# TODO: visit edges
+def to_verification_graph(proto: Protocol, tran: Transaction, io_prefix: str) -> VeriPath:
+	arg_map = {name: 0 for name in tran.args.keys()}
+	ret_arg_map = {name: 0 for name in tran.ret_args.keys()}
+	visit_state(io_prefix, [], arg_map, ret_arg_map, proto.start)
+
 
 
 
