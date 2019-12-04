@@ -101,11 +101,18 @@ def extract_if_not_redundant(expr: SmtExpr, msb: int, lsb: int) -> SmtExpr:
 	if is_full: return expr
 	else:       return BVExtract(expr, start=lsb, end=msb)
 
-def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], vars: Set[Symbol], var2inputs: Var2InputType) -> Tuple[List[SmtExpr], List[SmtExpr]]:
+def range_to_bitmap(msb: int, lsb: int) -> int:
+	assert msb >= lsb >= 0, f"Failed: {msb} >= {lsb} >= 0"
+	width = msb - lsb + 1
+	mask = (1 << width) - 1
+	return mask << lsb
+
+def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int]) -> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int]]:
 	""" works for input or output signals """
 
 	constraints: List[SmtExpr] = []
 	mappings: List[SmtExpr] = []
+	new_var_map = copy.copy(var_map)
 
 	for signal_name, expr in signals.items():
 		assert expr.get_type().is_bv_type(), f"{expr} : {expr.get_type()}"
@@ -122,34 +129,41 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 
 			# if this is a mapping to bits of a variable
 			if var.is_symbol():
-				assert var in vars, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var)}"
+				assert var in var_map, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var_map.keys())}"
 				var_expr = extract_if_not_redundant(var, msb=var_msb, lsb=var_lsb)
 
-				# check to see if these particular bits of `var` have been mapped before
-				# (this assumes that there will be no partially overlapping bit mappings)
-				if var in var2inputs and (var_msb, var_lsb) in var2inputs[var]:
-					# has been mapped before => just enforce equality
+				current_bits = range_to_bitmap(var_msb, var_lsb)
+				existing_bits = var_map[var.symbol_name()]
+
+				# update new variable mapping
+				new_var_map[var.symbol_name()] = existing_bits | current_bits
+
+				if current_bits & existing_bits == 0:
+					# these bits have never been mapped before => generate new mapping
+					mappings.append(Equals(sig_expr, var_expr))
+				elif current_bits & existing_bits == current_bits:
+					# all current bits have been mapped before => just enforce equality
 					constraints.append(Equals(sig_expr, var_expr))
 				else:
-					# first mapping => generate variable mapping
-					mappings.append(Equals(sig_expr, var_expr))
+					# if some bits have been mapped before and others are new, we give up
+					# (the solution would be to identify intervals that are mapped/not mapped and
+					#  generate multiple constraints/ mappings)
+					assert False, f"Overlapping bit mappings are not supported: {current_bits} & {existing_bits} = {current_bits & existing_bits}. In: {signal_name} = {expr}"
 
 			# if this is a mapping to a constant
 			else:
 				assert var_lsb == 0 and var_msb + 1 == var.get_type().width, f"Expect constants to be simplified!"
 				constraints.append(Equals(sig_expr, var))
 
-	return constraints, mappings
+	return constraints, mappings, new_var_map
 
 
-def visit_edge(io_prefix: str, prefix: List[VeriEdge], tran: Transaction, edge: ProtocolEdge, var2inputs: Var2InputType):
+def visit_edge(io_prefix: str, prefix: List[VeriEdge], tran: Transaction, edge: ProtocolEdge, arg_map: Dict[str, int], ret_arg_map: Dict[str, int]):
 	# the current transition id is the prefix length
 	ii = len(prefix)
 
-	argmap = {} # TODO
-	retargmap = {}  # TODO
-	input_constraints,  input_mappings  = find_constraints_and_mappings(io_prefix, edge.inputs,  tran.args, argmap)
-	output_constraints, output_mappings = find_constraints_and_mappings(io_prefix, edge.outputs, tran.ret_args, retargmap)
+	input_constraints,  input_mappings, arg_map  = find_constraints_and_mappings(io_prefix, edge.inputs, arg_map)
+	output_constraints, output_mappings, ret_arg_map = find_constraints_and_mappings(io_prefix, edge.outputs, ret_arg_map)
 
 
 
