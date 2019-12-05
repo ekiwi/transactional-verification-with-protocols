@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # SMT2 Lib based backend for BoundedCheck
-
+import functools
 import subprocess, tempfile, os, re
 from cache_to_disk import cache_to_disk
 from pysmt.shortcuts import *
@@ -320,3 +320,20 @@ def _check_sat(solver, header, filename, funs, assertions, get_cmds=None):
 	stdout = r.stdout.decode('utf-8').strip()
 	delta = time.time() - start
 	return stdout, delta
+
+
+# stand alone solver functions for use in verification midend
+# TODO: using an interactive solver + pipes could speed this up a bit!
+_solve = Solver(header='')
+def is_valid(e) -> bool:
+	f = tempfile.NamedTemporaryFile()
+	funs = list(get_free_variables(e))
+	out, delta = _solve.check_sat(filename=f.name, assertions=[Not(e)], funs=funs)
+	return out == 'unsat'
+
+def is_unsat(e) -> bool:
+	f = tempfile.NamedTemporaryFile()
+	asserts = e if isinstance(e, list) else [e]
+	funs = list(functools.reduce(lambda a,b: a|b,  (get_free_variables(a) for a in asserts)))
+	out, delta = _solve.check_sat(filename=f.name, assertions=asserts, funs=funs)
+	return out == 'unsat'
