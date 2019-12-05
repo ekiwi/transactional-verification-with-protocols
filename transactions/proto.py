@@ -91,36 +91,42 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 
 	return constraints, mappings, new_var_map
 
+@dataclass
+class ProtocolToVerificationGraphConverter:
+	io_prefix: str = ""
+	tran: Transaction = None
+	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str) -> VeriSpec:
+		self.io_prefix = io_prefix
+		self.tran = tran
+		arg_map = {name: 0 for name in tran.args.keys()}
+		ret_arg_map = {name: 0 for name in tran.ret_args.keys()}
+		start = self.visit_state([], arg_map, ret_arg_map, proto.start)
+		return VeriSpec(start)
 
-def visit_edge(io_prefix: str, tran: Transaction, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], edge: ProtocolEdge) -> VeriEdge:
-	# the current transition id is the prefix length
-	ii = len(prefix)
+	def visit_edge(self, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], edge: ProtocolEdge) -> VeriEdge:
+		# the current transition id is the prefix length
+		ii = len(prefix)
 
-	input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(io_prefix, edge.inputs, arg_map)
-	output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(io_prefix, edge.outputs, ret_arg_map)
+		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, edge.inputs, arg_map)
+		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, edge.outputs, ret_arg_map)
 
-	new_edge = VeriEdge(ii, input_constraints, output_constraints, input_mappings, output_mappings)
+		new_edge = VeriEdge(ii, input_constraints, output_constraints, input_mappings, output_mappings)
 
-	print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
-	new_edge.next = visit_state(io_prefix, tran, prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
-	return new_edge
+		print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
+		new_edge.next = self.visit_state(prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
+		return new_edge
 
-def visit_state(io_prefix: str, tran: Transaction, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], state: ProtocolState) -> VeriState:
-	new_state = VeriState([], transactions=[tran])
-	for edge in state.edges:
-		new_state.edges.append(visit_edge(io_prefix, tran, prefix, arg_map, ret_arg_map, edge))
-	if len(state.edges) == 0:
-		print("PATH end", new_state)
-	return new_state
-
+	def visit_state(self, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], state: ProtocolState) -> VeriState:
+		new_state = VeriState([], transactions=[self.tran])
+		for edge in state.edges:
+			new_edge = self.visit_edge(prefix, arg_map, ret_arg_map, edge)
+			new_state.edges.append(new_edge)
+		if len(state.edges) == 0:
+			print("PATH end", new_state)
+		return new_state
 
 def to_verification_graph(proto: Protocol, tran: Transaction, io_prefix: str) -> VeriSpec:
-	arg_map = {name: 0 for name in tran.args.keys()}
-	ret_arg_map = {name: 0 for name in tran.ret_args.keys()}
-	start = visit_state(io_prefix, tran, [], arg_map, ret_arg_map, proto.start)
-	return VeriSpec(start)
-
-
+	return ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix)
 
 
 
