@@ -83,6 +83,7 @@ class VeriGraphChecker:
 															   f"Maybe reshape the graph. {edge} vs {other}"
 				# remember relationship
 				self._edge_relations[(id(edge), id(other))] = relation
+				self._edge_relations[(id(other), id(edge))] = relation
 			self.visit_edge(edge, path_constraints)
 
 	def visit_edge(self, edge: VeriEdge, path_constraints: List[SmtExpr]):
