@@ -358,9 +358,16 @@ class Verifier:
 				check.assert_at(cycles, ii)
 
 	def proof_all(self):
-		from .proto import to_verification_graph
-		for tran in self.prob.spec.transactions:
-			to_verification_graph(tran.proto, tran, "")
+		from .proto import to_verification_graph, check_verification_graph
+
+		# turn every individual transaction into a graph
+		tran_graphs = [to_verification_graph(tran.proto, tran, self.mod, "") for tran in self.prob.spec.transactions]
+		if len(tran_graphs) > 1: raise NotImplementedError("TODO: implement graph merging!")
+		else: spec_graph = tran_graphs[0]
+		# verify graph to check if it satisfies assumptions
+		check_verification_graph(spec_graph)
+
+
 		return
 		# TODO: reenable
 		self.verify_inductive_base_case()
