@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 
 from .spec import *
+from .smt2 import is_unsat
 from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute
 from collections import defaultdict
 from typing import Set, Union, Iterator
@@ -13,11 +14,6 @@ from enum import Enum
 
 def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
 	return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
-
-
-def is_unsat(assertions: List[SmtExpr]) -> bool:
-	raise NotImplementedError("TODO: implement is UNSAT")
-	return False
 
 class EdgeRelation(Enum):
 	InputExclusive = 1 # (forall) I_0 & I_1 = 0

@@ -6,8 +6,6 @@
 from .spec import *
 from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Not
 from typing import Optional
-import tempfile
-from .smt2 import Solver
 from .proto import protocol_edges
 
 
@@ -99,13 +97,6 @@ def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
 			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
 			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
 						   msg="Output pins may be bound to constants or transaction return arguments.")
-
-def is_valid(e: SmtExpr) -> bool:
-	solve = Solver(header='')
-	f = tempfile.NamedTemporaryFile()
-	funs = list(get_free_variables(e))
-	out, delta = solve.check_sat(filename=f.name, assertions=[Not(e)], funs=funs)
-	return out == 'unsat'
 
 def legacy_converter(proto: LegacyProtocol) -> Protocol:
 	start = ProtocolState()
