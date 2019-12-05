@@ -6,6 +6,10 @@ from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals
 from collections import defaultdict
 from typing import Set, Union, Iterator
 import copy
+from enum import Enum
+
+def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
+	return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
 
 ##### Verification Protocol
 @dataclass
@@ -91,6 +95,13 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 
 	return constraints, mappings, new_var_map
 
+def check_arg_map(args: Dict[str, SmtSort], arg_map: Dict[str, int], path: str):
+	for name, typ in args.items():
+		assert name in arg_map, f"Argument {name} : {typ} missing in path: {path}"
+		assert typ.is_bv_type()
+		full = range_to_bitmap(typ.width - 1, 0)
+		assert arg_map[name] == full, f"Bits missing from {name}: {arg_map[name]} != {full} in path: {path}"
+
 @dataclass
 class ProtocolToVerificationGraphConverter:
 	io_prefix: str = ""
@@ -112,7 +123,7 @@ class ProtocolToVerificationGraphConverter:
 
 		new_edge = VeriEdge(ii, input_constraints, output_constraints, input_mappings, output_mappings)
 
-		print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
+		#print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
 		new_edge.next = self.visit_state(prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
 		return new_edge
 
@@ -122,8 +133,15 @@ class ProtocolToVerificationGraphConverter:
 			new_edge = self.visit_edge(prefix, arg_map, ret_arg_map, edge)
 			new_state.edges.append(new_edge)
 		if len(state.edges) == 0:
-			print("PATH end", new_state)
+			self.check_path(prefix, arg_map, ret_arg_map)
 		return new_state
+
+	def check_path(self, path: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int]):
+		# check to make sure all input and output arguments of the transactions are mapped to module I/Os
+		# TODO: there might be legit use cases for not mapping all outputs (maybe even inputs)
+		check_arg_map(self.tran.args, arg_map, str(path))
+		check_arg_map(self.tran.ret_args, ret_arg_map, str(path))
+
 
 def to_verification_graph(proto: Protocol, tran: Transaction, io_prefix: str) -> VeriSpec:
 	return ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix)
