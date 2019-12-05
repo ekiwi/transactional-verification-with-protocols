@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+
+import itertools
+
 from .spec import *
-from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals
+from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute
 from collections import defaultdict
 from typing import Set, Union, Iterator
 import copy
@@ -10,6 +13,95 @@ from enum import Enum
 
 def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
 	return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
+
+
+def is_unsat(assertions: List[SmtExpr]) -> bool:
+	raise NotImplementedError("TODO: implement is UNSAT")
+	return False
+
+class EdgeRelation(Enum):
+	InputExclusive = 1 # (forall) I_0 & I_1 = 0
+	IOExclusive = 2    # (forall) I_0 & O_0 & I_1 & O_1 = 0
+	CommonIOTrace = 3
+
+def compare_edges(path_constraints: List[SmtExpr], a: EdgeConstraints, b: EdgeConstraints) -> EdgeRelation:
+	# if there does *not* exist an I/O trace such that both edges input constraints are satisfied
+	input_exclusive = path_constraints + a.input + b.input
+	if is_unsat(input_exclusive):
+		return EdgeRelation.InputExclusive
+	# if there does *not* exist an I/O trace such that both edges I/O constraints are satisfied
+	io_exclusive = input_exclusive + a.output + b.output
+	if is_unsat(io_exclusive):
+		return EdgeRelation.IOExclusive
+	# else, there is a concrete I/O trace that matches both edges
+	return EdgeRelation.CommonIOTrace
+
+@dataclass
+class VeriGraphChecker:
+	inputs: Dict[str, SmtSort] = field(default_factory=dict)
+	outputs: Dict[str, SmtSort] = field(default_factory=dict)
+	_substitution_cache: Dict[int, Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]] = field(default_factory=dict)
+	_constraint_cache: Dict[int, EdgeConstraints] = field(default_factory=dict)
+
+
+	def get_substitution(self, cycle: int) -> Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]:
+		if cycle not in self._substitution_cache:
+			sub_i = {Symbol(name, typ): Symbol(f"{name}@{cycle}", typ) for name, typ in self.inputs.items()}
+			sub_o = {Symbol(name, typ): Symbol(f"{name}@{cycle}", typ) for name, typ in self.outputs.items()}
+			self._substitution_cache[cycle] = (sub_i, sub_o)
+		return self._substitution_cache[cycle]
+
+	@staticmethod
+	def substitute(constraints: List[SmtExpr], sub):
+		return [substitute(f, sub) for f in constraints]
+
+	def get_constraints(self, edge: VeriEdge):
+		# convert "time-less" i/o constraints/mappings into cycle unique symbols
+		# e.g.: `(done = 1)` --> `(done@1 = 1)`
+		if id(edge) not in self._constraint_cache:
+			sub_i, sub_o = self.get_substitution(edge.ii)
+			self._constraint_cache[id(edge)] = EdgeConstraints(
+				input=self.substitute(edge.constraints.input, sub_i),
+				output=self.substitute(edge.constraints.output, sub_o),
+				arg=self.substitute(edge.constraints.arg, sub_i),
+				ret_arg=self.substitute(edge.constraints.ret_arg, sub_o)
+			)
+		return self._constraint_cache[id(edge)]
+
+	def check(self, graph: VeriSpec):
+		self.inputs = graph.inputs
+		self.outputs = graph.outputs
+		path_constraints: List[SmtExpr] = []
+		self.visit_state(graph.start, path_constraints)
+
+	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
+		for edge in state.edges:
+			edge_constraints = self.get_constraints(edge)
+			# check relationship with other edges
+			for other in state.edges:
+				if id(edge) == id(other): continue
+				relation = compare_edges(path_constraints, edge_constraints, self.get_constraints(other))
+				assert relation != EdgeRelation.CommonIOTrace, f"Edges with a common IO-trace are not supported by out model checking algorithm!" \
+															   f"Maybe reshape the graph. {edge} vs {other}"
+				print("FOUND", relation, "(TODO: remember)")
+			self.visit_edge(edge, path_constraints)
+
+	def visit_edge(self, edge: VeriEdge, path_constraints: List[SmtExpr]):
+		assert edge.next is not None and isinstance(edge.next, VeriState)
+		assert len(edge.next.transactions) > 0, f"No transactions @ {edge}"
+		# if multiple transactions could be active on this edge, then we don't support mapping variables yet...
+		# TODO: revisit this
+		if len(edge.next.transactions) > 1:
+			assert len(edge.constraints.arg) == 0, f"Cannot map arguments while multiple transactions could be active!" \
+											       f"{edge.constraints.arg} @ {[tt.name for tt in edge.next.transactions]}"
+			assert len(edge.constraints.ret_arg) == 0, f"Cannot map arguments while multiple transactions could be active!" \
+											           f"{edge.constraints.ret_arg} @ {[tt.name for tt in edge.next.transactions]}"
+		#
+		cc = self.get_constraints(edge)
+		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
+
+def check_verification_graph(graph: VeriSpec):
+	VeriGraphChecker().check(graph)
 
 ##### Verification Protocol
 @dataclass
@@ -20,15 +112,23 @@ class VeriState:
 @dataclass
 class VeriEdge:
 	ii: int
-	input_constraints: List[SmtExpr]
-	output_constraints: List[SmtExpr]
-	arg_mapping: List[SmtExpr]
-	ret_arg_mapping: List[SmtExpr]
+	# constraints of the form: `(done = 1)`
+	constraints: EdgeConstraints
 	next: Optional[VeriState] = None
+
+@dataclass
+class EdgeConstraints:
+	input: List[SmtExpr]
+	output: List[SmtExpr]
+	arg: List[SmtExpr]
+	ret_arg: List[SmtExpr]
 
 @dataclass
 class VeriSpec:
 	start: VeriState
+	inputs: Dict[str, SmtSort]
+	outputs: Dict[str, SmtSort]
+	io_prefix: str
 
 
 def extract_if_not_redundant(expr: SmtExpr, msb: int, lsb: int) -> SmtExpr:
@@ -69,6 +169,7 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 				var_name = var.symbol_name()
 				assert var_name in var_map, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var_map.keys())}"
 				var_expr = extract_if_not_redundant(var, msb=var_msb, lsb=var_lsb)
+				# TODO: rename variable to {spec.name}.{tran.name}.{var.symbol_name()} in order to avoid name clashes
 
 				current_bits = range_to_bitmap(var_msb, var_lsb)
 				existing_bits = var_map[var_name]
@@ -106,13 +207,13 @@ def check_arg_map(args: Dict[str, SmtSort], arg_map: Dict[str, int], path: str):
 class ProtocolToVerificationGraphConverter:
 	io_prefix: str = ""
 	tran: Transaction = None
-	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str) -> VeriSpec:
+	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str) -> VeriState:
 		self.io_prefix = io_prefix
 		self.tran = tran
 		arg_map = {name: 0 for name in tran.args.keys()}
 		ret_arg_map = {name: 0 for name in tran.ret_args.keys()}
 		start = self.visit_state([], arg_map, ret_arg_map, proto.start)
-		return VeriSpec(start)
+		return start
 
 	def visit_edge(self, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], edge: ProtocolEdge) -> VeriEdge:
 		# the current transition id is the prefix length
@@ -120,8 +221,9 @@ class ProtocolToVerificationGraphConverter:
 
 		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, edge.inputs, arg_map)
 		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, edge.outputs, ret_arg_map)
+		constraints = EdgeConstraints(input_constraints, output_constraints, input_mappings, output_mappings)
 
-		new_edge = VeriEdge(ii, input_constraints, output_constraints, input_mappings, output_mappings)
+		new_edge = VeriEdge(ii, constraints)
 
 		#print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
 		new_edge.next = self.visit_state(prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
@@ -143,8 +245,9 @@ class ProtocolToVerificationGraphConverter:
 		check_arg_map(self.tran.ret_args, ret_arg_map, str(path))
 
 
-def to_verification_graph(proto: Protocol, tran: Transaction, io_prefix: str) -> VeriSpec:
-	return ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix)
+def to_verification_graph(proto: Protocol, tran: Transaction, mod: RtlModule, io_prefix: str) -> VeriSpec:
+	start = ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix)
+	return VeriSpec(start=start, io_prefix=io_prefix, inputs=mod.inputs, outputs=mod.outputs)
 
 
 
