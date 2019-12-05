@@ -38,6 +38,7 @@ class VeriGraphChecker:
 	outputs: Dict[str, SmtSort] = field(default_factory=dict)
 	_substitution_cache: Dict[int, Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]] = field(default_factory=dict)
 	_constraint_cache: Dict[int, EdgeConstraints] = field(default_factory=dict)
+	_edge_relations: Dict[Tuple[int, int], EdgeRelation] = field(default_factory=dict)
 
 
 	def get_substitution(self, cycle: int) -> Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]:
@@ -64,11 +65,12 @@ class VeriGraphChecker:
 			)
 		return self._constraint_cache[id(edge)]
 
-	def check(self, graph: VeriSpec):
+	def check(self, graph: VeriSpec) -> Dict[Tuple[int, int], EdgeRelation]:
 		self.inputs = graph.inputs
 		self.outputs = graph.outputs
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
+		return self._edge_relations
 
 	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
 		for edge in state.edges:
@@ -79,7 +81,8 @@ class VeriGraphChecker:
 				relation = compare_edges(path_constraints, edge_constraints, self.get_constraints(other))
 				assert relation != EdgeRelation.CommonIOTrace, f"Edges with a common IO-trace are not supported by out model checking algorithm!" \
 															   f"Maybe reshape the graph. {edge} vs {other}"
-				print("FOUND", relation, "(TODO: remember)")
+				# remember relationship
+				self._edge_relations[(id(edge), id(other))] = relation
 			self.visit_edge(edge, path_constraints)
 
 	def visit_edge(self, edge: VeriEdge, path_constraints: List[SmtExpr]):
@@ -96,8 +99,8 @@ class VeriGraphChecker:
 		cc = self.get_constraints(edge)
 		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
 
-def check_verification_graph(graph: VeriSpec):
-	VeriGraphChecker().check(graph)
+def check_verification_graph(graph: VeriSpec) -> Dict[Tuple[int, int], EdgeRelation]:
+	return VeriGraphChecker().check(graph)
 
 ##### Verification Protocol
 @dataclass

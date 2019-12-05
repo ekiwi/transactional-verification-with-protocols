@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
-from pysmt.shortcuts import *
+from pysmt.shortcuts import Symbol, BVType, Equals, BV
 from transactions import *
 from functools import reduce
 
