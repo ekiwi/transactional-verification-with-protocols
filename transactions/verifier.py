@@ -10,6 +10,7 @@ from .utils import *
 from .spec import *
 from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
+from .proto import VeriSpec, to_verification_graph, check_verification_graph
 from typing import Iterable, Tuple, Union
 from collections import defaultdict
 
@@ -235,6 +236,7 @@ class Verifier:
 		self.prob = prob
 		self.mod = mod
 		self.engine = engine
+		self.topgraph = to_veri_spec(self.mod, self.prob.spec)
 		self.verbose = True
 
 	def verify_inductive_base_case(self):
@@ -250,78 +252,11 @@ class Verifier:
 			for ii in self.prob.invariances:
 				check.assert_at(1, ii)
 
-	def check_transacion_trace_candidate(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
-		""" returns True if the trace is the only feasible trace, i.e. if there is no other feasible trace """
-		cycles = min(transaction_trace_len(trace) for trace in traces.values())
-		assert cycles > 0, f"Zero cycles! {traces}"
-
-		check = BoundedCheck(f"try transaction trace for {tran.name}", self, cycles=cycles, active=True)
-		do_transaction(tran=tran, check=check, traces=traces, invariances=self.prob.invariances,
-					   mod=self.mod, subspecs=self.prob.submodules, allow_incomplete=True)
-		return check.do_check()
-
-
 	def find_transaction_trace(self, tran: Transaction, subspecs: Dict[str, Spec]) -> Dict[str, List[Transaction]]:
-		if len(self.prob.submodules) == 0: return {}
-
-		# this algorithm requires no backtracking since transactions are uniquely identified by their input requirements
-		traces  = { instance: [] for instance in subspecs.keys() }
-		choices = { instance: spec.transactions for instance, spec in subspecs.items() }
-		max_len = transaction_len(tran)
-
-		found_solution = False
-		while not found_solution:
-			# find set of instances for which we need to append transactions
-			lens = { ii: transaction_trace_len(trace) for ii, trace in traces.items() }
-			min_len = min(lens.values())
-			instances = [name for name, ll in lens.items() if ll == min_len]
-
-			# find possible transactions for each instance
-			dimensions = []
-			for ii in instances:
-				possible = [(ii, tt) for tt in choices[ii] if lens[ii] + transaction_len(tt) <= max_len]
-				assert len(possible) > 0, f"No candidate traces found for {ii}. {traces[ii]}"
-				dimensions.append(possible)
-
-			# iterate over all combinations
-			made_progress = False
-			for candidates in itertools.product(*dimensions):
-				cand_traces = copy.copy(traces)
-				for ii, tt in candidates:
-					cand_traces[ii] = cand_traces[ii] + [tt] # important to create a new list here!
-				if self.check_transacion_trace_candidate(tran, cand_traces):
-					# found a valid trace!
-					traces = cand_traces
-					if all(transaction_trace_len(trace) == max_len for trace in traces.values()):
-						found_solution = True
-					made_progress = True
-					break
-			assert made_progress, f"No progress in trying top find trace for {tran.name}!"
-			print_traces(traces)
-		return traces
-
-		# TODO: actually discover traces
-		# assert set(self.prob.submodules.keys()) == {'regfile', 'alu'}, f"{list(self.prob.submodules.keys())}"
-		# rr = {tt.name: tt for tt in self.prob.submodules['regfile'].transactions}
-		# aa = {tt.name: tt for tt in self.prob.submodules['alu'].transactions}
-		# if tran.name == 'Idle':
-		# 	return {'regfile': [rr['Idle']], 'alu': [aa['Idle']]}
-		# elif tran.name == 'Add':
-		# 	return {
-		# 		'regfile': [rr[n] for n in ['RW', 'Idle']],
-		# 		'alu': [aa[n] for n in ['Idle', 'Idle', 'Add', 'Idle']]
-		# 	}
-		# else:
-		# 	assert False, f"Unknown transaction {tran.name}"
+		raise NotImplementedError()
 
 	def verify_transaction_trace_format(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
-		# check that for each blackboxed submodule we have a trace of the correct length
-		for name, spec in self.prob.submodules.items():
-			assert name in trace, f"Missing transaction trace for {tran.name} for submodule {name}"
-			trace_len = sum(transaction_len(tt) for tt in trace[name])
-			assert trace_len == transaction_len(tran), f"Transaction trace for {tran.name} for submodule {name} is {trace_len} cycles long, needs to be {transaction_len(tran)}"
-			for subtran in trace[name]:
-				assert subtran in spec.transactions, f"Subtransaction {subtran.name} is not part of the spec for {name}"
+		raise NotImplementedError()
 
 	def verify_transaction(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
 		""" checks that the transaction output and the input to subtransactions is correct """
@@ -348,74 +283,36 @@ class Verifier:
 
 	def verify_inductive_step(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
 		""" checks that the the invariants are inductive over transaction tran """
-		if len(self.prob.invariances) == 0: return
-		cycles = transaction_len(tran)
-		with BoundedCheck(f"invariances are inductive over {tran.name} transaction", self, cycles=cycles) as check:
-			do_transaction(tran=tran, check=check, traces=traces, invariances=self.prob.invariances,
-			               mod=self.mod, subspecs=self.prob.submodules)
-			# all invariances should hold after the transaction
-			for ii in self.prob.invariances:
-				check.assert_at(cycles, ii)
+		raise NotImplementedError()
+
+	def verify
+
 
 	def proof_all(self):
-		from .proto import to_verification_graph, check_verification_graph
-
-		# turn every individual transaction into a graph
-		tran_graphs = [to_verification_graph(tran.proto, tran, self.mod, "") for tran in self.prob.spec.transactions]
-		if len(tran_graphs) > 1: raise NotImplementedError("TODO: implement graph merging!")
-		else: spec_graph = tran_graphs[0]
-		# verify graph to check if it satisfies assumptions
-		check_verification_graph(spec_graph)
-
-
-		return
-		# TODO: reenable
 		self.verify_inductive_base_case()
-		for tran in self.prob.spec.transactions:
-			traces = self.find_transaction_trace(tran, self.prob.submodules)
-			self.verify_transaction_trace_format(tran, traces)
-			self.verify_transaction(tran, traces)
-			self.verify_inductive_step(tran, traces)
 
 
-## TODO: generate verification problem from graph
 
 
-from pysmt.walkers import DagWalker
 
-class FindVariableIntervals(DagWalker):
-	_instance: Optional[FindVariableIntervals] = None
+		#for tran in self.prob.spec.transactions:
+			#traces = self.find_transaction_trace(tran, self.prob.submodules)
+			#self.verify_transaction_trace_format(tran, traces)
+			#self.verify_transaction(tran, traces)
+			#self.verify_inductive_step(tran, traces)
+
+
+def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
+	# turn every individual transaction into a graph
+	tran_graphs = [to_verification_graph(tran.proto, tran, mod, "") for tran in spec.transactions]
+	if len(tran_graphs) > 1:
+		raise NotImplementedError("TODO: implement graph merging!")
+	else:
+		spec_graph = tran_graphs[0]
+	# verify graph to check if it satisfies assumptions
+	return check_verification_graph(spec_graph)
+
+class FindVariableIntervals:
 	@staticmethod
 	def find(expr: SmtExpr):
-		if FindVariableIntervals._instance is None:
-			FindVariableIntervals._instance = FindVariableIntervals()
-		return FindVariableIntervals._instance.walk(expr)
-	def __init__(self, env=None):
-		super().__init__(env)
-	def bits(self, formula): return formula.get_type().width
-	def walk(self, formula, **kwargs):
-		res = super().walk(formula, **kwargs)
-		if isinstance(res, list):
-			# fixup offsets of concatenation
-			res_rev = list(reversed(res))
-			widths = [ii[0] - ii[1] + 1 for ii in res_rev]
-			offsets = [0] + list(itertools.accumulate(widths))
-			final_res = [(ww - 1 + oo, oo, ii) for oo, ww, ii in zip(offsets, widths, res_rev)]
-			return final_res
-		else:
-			return [(self.bits(formula)-1, 0, res)]
-	def walk_bv_concat(self, formula, args, **kwargs):
-		return ((args[0] if isinstance(args[0], list) else [args[0]]) +
-		        (args[1] if isinstance(args[1], list) else [args[1]]))
-	def walk_bv_extract(self, formula, args, **kwargs):
-		lo = formula.bv_extract_start()
-		hi = formula.bv_extract_end()
-		assert len(args) == 1
-		old_hi, old_lo, name = args[0]
-		a = (hi + old_lo, lo + old_lo, name)
-		assert a[0] - a[1] == self.bits(formula) - 1
-		return a
-	def walk_array_select(self, formula, args, **kwargs):
-		raise NotImplementedError("TODO: support array select")
-	def walk_bv_constant(self, formula, **kwargs): return (self.bits(formula)-1, 0, formula)
-	def walk_symbol(self, formula, **kwargs): return (self.bits(formula)-1, 0, formula)
+		raise NotImplementedError("Old Code")

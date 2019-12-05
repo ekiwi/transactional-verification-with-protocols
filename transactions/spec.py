@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Callable, List, Tuple, Dict, Any, Union
 import pysmt.fnode, pysmt.typing
 

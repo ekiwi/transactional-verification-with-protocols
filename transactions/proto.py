@@ -100,8 +100,9 @@ class VeriGraphChecker:
 		cc = self.get_constraints(edge)
 		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
 
-def check_verification_graph(graph: VeriSpec) -> Dict[Tuple[int, int], EdgeRelation]:
-	return VeriGraphChecker().check(graph)
+def check_verification_graph(graph: VeriSpec) -> VeriSpec:
+	edge_relations = VeriGraphChecker().check(graph)
+	return replace(graph, checked=True, edge_relations=edge_relations)
 
 ##### Verification Protocol
 @dataclass
@@ -129,6 +130,8 @@ class VeriSpec:
 	inputs: Dict[str, SmtSort]
 	outputs: Dict[str, SmtSort]
 	io_prefix: str
+	checked : bool = False
+	edge_relations: Dict[Tuple[int, int], EdgeRelation] =  field(default_factory=dict)
 
 
 def extract_if_not_redundant(expr: SmtExpr, msb: int, lsb: int) -> SmtExpr:
