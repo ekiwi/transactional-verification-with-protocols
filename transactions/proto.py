@@ -15,6 +15,12 @@ from enum import Enum
 def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
 	return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
 
+
+###################### Constraint Graph Merging
+
+
+###################### Constraint Graph Verification + Meta Data Generator
+
 class EdgeRelation(Enum):
 	InputExclusive = 1 # (forall) I_0 & I_1 = 0
 	IOExclusive = 2    # (forall) I_0 & O_0 & I_1 & O_1 = 0
@@ -152,6 +158,9 @@ class VeriSpec:
 	edge_relations: Dict[Tuple[int, int], EdgeRelation] =  field(default_factory=dict)
 	edge_symbols: Dict[int, Symbol] = field(default_factory=dict)
 
+
+
+###################### Protocol to Constraint Graph
 
 def extract_if_not_redundant(expr: SmtExpr, msb: int, lsb: int) -> SmtExpr:
 	assert expr.get_type().is_bv_type(), f"{expr} : {expr.get_type()}"
