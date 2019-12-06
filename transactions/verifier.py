@@ -295,7 +295,7 @@ class Verifier:
 			inactive_rst = get_inactive_reset(self.mod)
 			if inactive_rst is not None:
 				check.assume_always(inactive_rst)
-			encode_veri_graph(self.prob.spec, self.topgraph, check, self.prob.invariances)
+			encode_veri_graph(self.prob.spec, self.topgraph, check, self.prob.invariances, self.prob.mappings)
 
 
 
@@ -316,8 +316,8 @@ def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
 	# verify graph to check if it satisfies assumptions
 	return check_verification_graph(spec_graph)
 
-def encode_veri_graph(spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr]):
-	return VeriGraphToCheck().convert(spec, graph, check, invariances)
+def encode_veri_graph(spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr], mappings: List[StateMapping]):
+	return VeriGraphToCheck().convert(spec, graph, check, invariances, mappings)
 
 class VeriGraphToCheck:
 	offset: int = 0
@@ -325,27 +325,30 @@ class VeriGraphToCheck:
 	spec: Spec = None
 	graph: VeriSpec = None
 	invariances: List[SmtExpr] = field(default_factory=list)
+	mappings: List[StateMapping] = field(default_factory=list)
 	final_states: List[Symbol] = field(default_factory=list)
 
 
-	def convert(self, spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr]):
+	def convert(self, spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr], mappings: List[StateMapping]):
 		assert graph.checked, f"Graph not checked! {graph}"
 		self.offset = 0
 		self.spec = spec
 		self.check = check
 		self.graph = graph
 		self.invariances = invariances
+		self.mappings = mappings
 		self.final_states = []
 
 		# declare all semantics
 		# TODO: generalize
-		assert len(spec.state) == 0, f"{spec}"
+
+		# declare architectural state input
+		prefix = ""
+		declare_constants(check, make_symbols(self.spec.state, prefix))
 		for tran in spec.transactions:
-			for arg_name, arg_tpe in tran.args.items():
-				self.check.constant(Symbol(arg_name, arg_tpe))
-			for ret_name, ret_tpe in tran.ret_args.items():
-				expr = tran.semantics[ret_name]
-				check.function(Symbol(ret_name, ret_tpe), expr)
+			declare_constants(check, make_symbols(tran.args, prefix))
+			# calculate semantics of this transaction
+			apply_semantics(tran, check, self.spec.state, prefix)
 
 		# explore graph
 		self.visit_state(graph.start, TRUE())
@@ -353,6 +356,28 @@ class VeriGraphToCheck:
 		# we have to explore at least one final state
 		at_least_one = disjunction(*self.final_states)
 		self.check.assert_at(self.graph.max_k-1, at_least_one)
+
+	def visit_initial_state(self, ii: int):
+		# in the first state, we assume the invariances
+		for inv in self.invariances:
+			self.check.assume_at(ii, inv)
+
+		# connect initial circuit and arch state
+		for mapping in self.mappings:
+			# TODO: this does not really work for offset != 0
+			self.check.assume_at(ii, Equals(mapping.arch, mapping.impl))
+
+	def visit_final_state(self, guard: SmtExpr, ii: int):
+		# in any final state, the invariances need to hold!
+		for inv in self.invariances:
+			self.check.assert_at(ii, inv)
+		self.final_states.append(guard)
+
+		# verify arch states after transaction
+		arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.spec.state.items()}
+		for mapping in self.mappings:
+			arch = substitute(mapping.arch, arch_next)
+			self.check.assert_at(ii, Equals(arch, mapping.impl))
 
 	def visit_state(self, state: VeriState, guard: SmtExpr):
 		if len(state.edges) == 0:
@@ -362,17 +387,10 @@ class VeriGraphToCheck:
 			return # incomplete
 
 		if ii == self.offset:
-			# in the first state, we assume the invariances
-			for inv in self.invariances:
-				self.check.assume_at(ii, inv)
+			self.visit_initial_state(ii)
 
 		if len(state.edges) == 0:
-			# finaly state!
-			if ii == self.offset:
-				# in any final state, the invariances need to hold!
-				for inv in self.invariances:
-					self.check.assert_at(ii, inv)
-			self.final_states.append(guard)
+			return self.visit_final_state(guard, ii)
 
 		##### constraints
 		# input constraints
