@@ -351,9 +351,10 @@ class VeriGraphToCheck:
 			apply_semantics(tran, check, self.spec.state, prefix)
 
 		# explore graph
-		self.visit_state(graph.start, TRUE())
+		self.visit_state(graph.start, TRUE(), self.offset)
 
 		# we have to explore at least one final state
+		assert len(self.final_states) > 0, f"found not final states!"
 		at_least_one = disjunction(*self.final_states)
 		self.check.assert_at(self.graph.max_k-1, at_least_one)
 
@@ -379,10 +380,7 @@ class VeriGraphToCheck:
 			arch = substitute(mapping.arch, arch_next)
 			self.check.assert_at(ii, Equals(arch, mapping.impl))
 
-	def visit_state(self, state: VeriState, guard: SmtExpr):
-		if len(state.edges) == 0:
-			return
-		ii = state.edges[0].ii + self.offset
+	def visit_state(self, state: VeriState, guard: SmtExpr, ii: int):
 		if ii >= self.check.cycles:
 			return # incomplete
 
@@ -436,7 +434,7 @@ class VeriGraphToCheck:
 
 		# visit next states
 		for edge in state.edges:
-			self.visit_state(edge.next, self.graph.edge_symbols[id(edge)])
+			self.visit_state(edge.next, self.graph.edge_symbols[id(edge)], ii+1)
 
 
 class FindVariableIntervals:
