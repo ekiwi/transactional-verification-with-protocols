@@ -10,7 +10,7 @@ from .utils import *
 from .spec import *
 from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
-from .proto import VeriSpec, to_verification_graph, check_verification_graph
+from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, VeriEdge, EdgeRelation
 from typing import Iterable, Tuple, Union
 from collections import defaultdict
 
@@ -285,13 +285,13 @@ class Verifier:
 		""" checks that the the invariants are inductive over transaction tran """
 		raise NotImplementedError()
 
-	def verify
 
 
 	def proof_all(self):
 		self.verify_inductive_base_case()
 
-
+		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=self.topgraph.max_k) as check:
+			encode_veri_graph(self.prob.spec, self.topgraph, check, self.prob.invariances)
 
 
 
@@ -311,6 +311,111 @@ def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
 		spec_graph = tran_graphs[0]
 	# verify graph to check if it satisfies assumptions
 	return check_verification_graph(spec_graph)
+
+def encode_veri_graph(spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr]):
+	return VeriGraphToCheck().convert(spec, graph, check, invariances)
+
+class VeriGraphToCheck:
+	offset: int = 0
+	check: BoundedCheck = None
+	spec: Spec = None
+	graph: VeriSpec = None
+	invariances: List[SmtExpr] = field(default_factory=list)
+	final_states: List[Symbol] = field(default_factory=list)
+
+
+	def convert(self, spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr]):
+		assert graph.checked, f"Graph not checked! {graph}"
+		self.offset = 0
+		self.spec = spec
+		self.check = check
+		self.graph = graph
+		self.invariances = invariances
+		self.final_states = []
+
+		# declare all semantics
+		# TODO: generalize
+		assert len(spec.state) == 0, f"{spec}"
+		for tran in spec.transactions:
+			for arg_name, arg_tpe in tran.args.items():
+				self.check.constant(Symbol(arg_name, arg_tpe))
+			for ret_name, ret_tpe in tran.ret_args.items():
+				expr = tran.semantics[ret_name]
+				check.function(Symbol(ret_name, ret_tpe), expr)
+
+		# explore graph
+		self.visit_state(graph.start, TRUE())
+
+		# we have to explore at least one final state
+		at_least_one = disjunction(*self.final_states)
+		self.check.assert_at(self.graph.max_k-1, at_least_one)
+
+	def visit_state(self, state: VeriState, guard: SmtExpr):
+		if len(state.edges) == 0:
+			return
+		ii = state.edges[0].ii + self.offset
+		if ii >= self.check.cycles:
+			return # incomplete
+
+		if ii == self.offset:
+			# in the first state, we assume the invariances
+			for inv in self.invariances:
+				self.check.assume_at(ii, inv)
+
+		if len(state.edges) == 0:
+			# finaly state!
+			if ii == self.offset:
+				# in any final state, the invariances need to hold!
+				for inv in self.invariances:
+					self.check.assert_at(ii, inv)
+			self.final_states.append(guard)
+
+		##### constraints
+		# input constraints
+		I = [conjunction(*edge.constraints.input) for edge in state.edges]
+		# argument mappings
+		A = [conjunction(*edge.constraints.arg) for edge in state.edges]
+		# output constraints
+		O = [conjunction(*edge.constraints.output) for edge in state.edges]
+		# return argument mappings
+		R = [conjunction(*edge.constraints.ret_arg) for edge in state.edges]
+
+		###########################################################################################
+		# naive encoding (assuming all edges could have common inputs, but I/O is always exclusive)
+		###########################################################################################
+
+		# restrict inputs to any of the provided edges
+		input_assumption = Implies(guard, disjunction(*I))
+		self.check.assume_at(ii, input_assumption)
+
+		# output requirements for any combination of active edges
+		for bits in range(1 << len(state.edges)):
+			active = [(bits & (1<<ii)) != 0 for ii in range(len(state.edges))]
+
+			# TODO: check if antecedent is infeasible
+			inputs = [I[ii] if active[ii] else Not(I[ii]) for ii in range(len(state.edges))]
+			antecedent = And(guard, conjunction(*inputs))
+
+			outputs = [O[ii] for ii in range(len(state.edges)) if active[ii]]
+			consequent = disjunction(*outputs)
+
+			self.check.assert_at(ii, Implies(antecedent, consequent))
+
+		# path computation and argument mappings
+		for ei, edge in enumerate(state.edges):
+			# next guard (is this edge taken)?
+			next_cond = And(guard, And(I[ei], O[ei]))
+			edge_sym = self.graph.edge_symbols[id(edge)]
+			self.check.constant(edge_sym)
+			self.check.assume_at(ii, Iff(edge_sym, next_cond))
+			# argument mapping
+			self.check.assume_at(ii, Implies(next_cond, A[ei]))
+			self.check.assert_at(ii, Implies(next_cond, R[ei]))
+
+		# visit next states
+		for edge in state.edges:
+			self.visit_state(edge.next, self.graph.edge_symbols[id(edge)])
+
 
 class FindVariableIntervals:
 	@staticmethod
