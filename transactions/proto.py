@@ -83,7 +83,7 @@ class VeriGraphChecker:
 		self.outputs = graph.outputs
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
-		return self._edge_relations, self._max_k, self._edge_symbols
+		return self._edge_relations, self._max_k+1, self._edge_symbols
 
 	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
 		for edge in state.edges:
