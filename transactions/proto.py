@@ -6,7 +6,7 @@ import itertools
 
 from .spec import *
 from .smt2 import is_unsat
-from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute
+from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL
 from collections import defaultdict
 from typing import Set, Union, Iterator
 import copy
@@ -39,6 +39,9 @@ class VeriGraphChecker:
 	_substitution_cache: Dict[int, Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]] = field(default_factory=dict)
 	_constraint_cache: Dict[int, EdgeConstraints] = field(default_factory=dict)
 	_edge_relations: Dict[Tuple[int, int], EdgeRelation] = field(default_factory=dict)
+	_max_k: int = 0
+	_edge_symbols: Dict[int,Symbol] = field(default_factory=dict)
+	_edge_names : Set[str] = field(default_factory=set)
 
 
 	def get_substitution(self, cycle: int) -> Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]:
@@ -65,12 +68,22 @@ class VeriGraphChecker:
 			)
 		return self._constraint_cache[id(edge)]
 
-	def check(self, graph: VeriSpec) -> Dict[Tuple[int, int], EdgeRelation]:
+	def get_unique_edge_name(self, ii:int) -> str:
+		prefix = f"edge@{ii}"
+		name = prefix
+		suffix = 0
+		while name in self._edge_names:
+			name = f"{prefix}_{suffix}"
+			suffix += 1
+		self._edge_names.add(name)
+		return name
+
+	def check(self, graph: VeriSpec) -> Tuple[Dict[Tuple[int, int], EdgeRelation], int, Dict[int, Symbol]]:
 		self.inputs = graph.inputs
 		self.outputs = graph.outputs
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
-		return self._edge_relations
+		return self._edge_relations, self._max_k, self._edge_symbols
 
 	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
 		for edge in state.edges:
@@ -97,12 +110,16 @@ class VeriGraphChecker:
 			assert len(edge.constraints.ret_arg) == 0, f"Cannot map arguments while multiple transactions could be active!" \
 											           f"{edge.constraints.ret_arg} @ {[tt.name for tt in edge.next.transactions]}"
 		#
+		self._max_k = max(self._max_k, edge.ii+1)
+		# create an edge symbol
+		self._edge_symbols[id(edge)] = Symbol(self.get_unique_edge_name(edge.ii), BOOL)
+		#
 		cc = self.get_constraints(edge)
 		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
 
 def check_verification_graph(graph: VeriSpec) -> VeriSpec:
-	edge_relations = VeriGraphChecker().check(graph)
-	return replace(graph, checked=True, edge_relations=edge_relations)
+	edge_relations, max_k, edge_symbols = VeriGraphChecker().check(graph)
+	return replace(graph, checked=True, edge_relations=edge_relations, max_k=max_k, edge_symbols=edge_symbols)
 
 ##### Verification Protocol
 @dataclass
@@ -130,8 +147,10 @@ class VeriSpec:
 	inputs: Dict[str, SmtSort]
 	outputs: Dict[str, SmtSort]
 	io_prefix: str
+	max_k: int = 0
 	checked : bool = False
 	edge_relations: Dict[Tuple[int, int], EdgeRelation] =  field(default_factory=dict)
+	edge_symbols: Dict[int, Symbol] = field(default_factory=dict)
 
 
 def extract_if_not_redundant(expr: SmtExpr, msb: int, lsb: int) -> SmtExpr:
