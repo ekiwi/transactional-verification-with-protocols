@@ -36,6 +36,11 @@ protocol = LegacyProtocol(
 
 is_zero = lambda expr: Equals(expr, BV(0, expr.bv_width()))
 do_write = And(Equals(rd_enable, BV(1,1)), Not(Equals(rd_addr, BV(0, 5))))
+
+# TODO: figure out why this check passes if we change the spec to:
+# do_write = TRUE()
+
+
 semantics = {
 	'rs1_data': Ite(is_zero(rs1_addr), BV(0, 32), Select(regs, rs1_addr)),
 	'rs2_data': Ite(is_zero(rs2_addr), BV(0, 32), Select(regs, rs2_addr)),
