@@ -431,8 +431,8 @@ class VeriGraphToCheck:
 			self.check.constant(edge_sym)
 			self.check.assume_at(ii, Iff(edge_sym, next_cond))
 			# argument mapping
-			self.check.assume_at(ii, Implies(next_cond, A[ei]))
-			self.check.assert_at(ii, Implies(next_cond, R[ei]))
+			if A[ei] != TRUE(): self.check.assume_at(ii, Implies(edge_sym, A[ei]))
+			if R[ei] != TRUE(): self.check.assert_at(ii, Implies(edge_sym, R[ei]))
 
 		# visit next states
 		for edge in state.edges:
