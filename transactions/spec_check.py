@@ -100,11 +100,12 @@ def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
 
 def legacy_converter(proto: LegacyProtocol) -> Protocol:
 	start = ProtocolState()
+	st = start
 	for tt in proto.transitions:
 		edge = ProtocolEdge(inputs=tt.inputs, outputs=tt.outputs)
-		start.edges = [edge]
-		start = ProtocolState()
-		edge.next = start
+		st.edges = [edge]
+		st = ProtocolState()
+		edge.next = st
 	return Protocol(start)
 
 
