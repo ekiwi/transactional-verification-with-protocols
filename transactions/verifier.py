@@ -291,6 +291,10 @@ class Verifier:
 		self.verify_inductive_base_case()
 
 		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=self.topgraph.max_k) as check:
+			# reset should be inactive during a transaction
+			inactive_rst = get_inactive_reset(self.mod)
+			if inactive_rst is not None:
+				check.assume_always(inactive_rst)
 			encode_veri_graph(self.prob.spec, self.topgraph, check, self.prob.invariances)
 
 
