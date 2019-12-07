@@ -234,7 +234,7 @@ def range_to_bitmap(msb: int, lsb: int) -> int:
 	mask = (1 << width) - 1
 	return mask << lsb
 
-def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int]) -> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int]]:
+def find_constraints_and_mappings(io_prefix: str, var_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int]) -> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int]]:
 	""" works for input or output signals """
 
 	constraints: List[SmtExpr] = []
@@ -258,7 +258,9 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 			if var.is_symbol():
 				var_name = var.symbol_name()
 				assert var_name in var_map, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var_map.keys())}"
-				var_expr = extract_if_not_redundant(var, msb=var_msb, lsb=var_lsb)
+				# we add a prefix in order to avoid name clashes when merging transaction graphs or when model checking with other graphs
+				renamed_var = Symbol(var_prefix + var_name, var.symbol_type())
+				var_expr = extract_if_not_redundant(renamed_var, msb=var_msb, lsb=var_lsb)
 				# TODO: rename variable to {spec.name}.{tran.name}.{var.symbol_name()} in order to avoid name clashes
 
 				current_bits = range_to_bitmap(var_msb, var_lsb)
@@ -309,8 +311,9 @@ class ProtocolToVerificationGraphConverter:
 		# the current transition id is the prefix length
 		ii = len(prefix)
 
-		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, edge.inputs, arg_map)
-		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, edge.outputs, ret_arg_map)
+		var_prefix = f"{self.tran.name}."
+		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, var_prefix, edge.inputs, arg_map)
+		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, var_prefix, edge.outputs, ret_arg_map)
 		constraints = EdgeConstraints(input_constraints, output_constraints, input_mappings, output_mappings)
 
 		new_edge = VeriEdge(ii, constraints)
