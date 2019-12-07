@@ -345,9 +345,9 @@ class VeriGraphToCheck:
 		prefix = ""
 		declare_constants(check, make_symbols(self.spec.state, prefix))
 		for tran in spec.transactions:
-			declare_constants(check, make_symbols(tran.args, prefix))
+			declare_constants(check, make_symbols(tran.args, prefix=f"{tran.name}."))
 			# calculate semantics of this transaction
-			apply_semantics(tran, check, self.spec.state, prefix)
+			apply_semantics(tran, check, self.spec.state, prefix=f"{tran.name}.")
 
 		# explore graph
 		self.visit_state(graph.start, TRUE(), self.offset)
