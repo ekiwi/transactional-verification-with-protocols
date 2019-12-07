@@ -2,27 +2,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import copy
-import itertools
 from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
 from .spec import *
 from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
-from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, VeriEdge, EdgeRelation, merge_constraint_graphs
-from typing import Iterable, Tuple, Union
-from collections import defaultdict
-
-def transaction_len(tran: Transaction) -> int:
-	return len(tran.proto.transitions)
-
-def transaction_trace_len(trace: List[Transaction]) -> int:
-	return sum(transaction_len(tt) for tt in trace)
-
-def print_traces(traces: Dict[str,List[Transaction]]):
-	for ii, trace in traces.items():
-		print(f"{ii:<10}: {[tt.name for tt in trace]}")
+from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, merge_constraint_graphs
 
 def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
 	if module.reset is None: return None
@@ -60,175 +46,6 @@ def apply_semantics(tran: Transaction, check: BoundedCheck, state: Dict[str, Sym
 		next_state = tran.semantics.get(state_name, prev_state)
 		check.function(Symbol(prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
 
-def generate_outputs(tran: Transaction, module: RtlModule, state: Dict[str, SmtSort], check: BoundedCheck,
-					 offset: int = 0,
-					 prefix: str = "", assume_dont_assert_requirements: bool = True):
-	""" generates output assumptions/assertions on module for offset..transaction_len(tran)+offset
-		assumption: input args have been declared
-	"""
-
-	# declare architectural state input
-	declare_constants(check, make_symbols(state, prefix))
-
-	# calculate semantics of this transaction
-	apply_semantics(tran, check, state, prefix)
-
-	# we may need to rename references to the transaction arguments in the protocol mapping
-	mappings = map_symbols(make_symbols(tran.ret_args, prefix))
-
-	for ii, tt in enumerate(tran.proto.transitions):
-		# stop generating inputs when we are at the end of the check
-		if ii + offset > check.cycles: break
-		# connect outputs
-		for signal_name, expr in tt.outputs.items():
-			sig = Symbol(module.io_prefix + signal_name, module.outputs[signal_name])
-			expr = Equals(sig, substitute(expr, mappings))
-			if assume_dont_assert_requirements:
-				check.assume_at(ii + offset, expr)
-			else:
-				check.assert_at(ii + offset, expr)
-
-
-def generate_inputs(tran: Transaction, module: RtlModule, check: BoundedCheck, offset: int = 0,
-					prefix: str = "", assume_dont_assert_requirements: bool = False):
-	""" generates input assumptions/assertions on module for offset..transaction_len(tran)+offset """
-
-	# reset should be inactive during a transaction
-	inactive_rst = get_inactive_reset(module)
-	if inactive_rst is not None:
-		for ii in range(transaction_len(tran)):
-			# stop generating inputs when we are at the end of the check
-			if ii + offset > check.cycles: break
-			if assume_dont_assert_requirements:
-				check.assume_at(ii + offset, inactive_rst)
-			else:
-				check.assert_at(ii + offset, inactive_rst)
-
-	# variable -> interval -> (cycle, signal_expr)
-	var2inputs: Dict[SmtExpr, Dict[Tuple[int, int], List[Tuple[int, SmtExpr]]]] = defaultdict(lambda: defaultdict(list))
-
-	# find constant and variable mapping on the protocol inputs
-	for ii, tt in enumerate(tran.proto.transitions):
-		# stop generating inputs when we are at the end of the check
-		if ii + offset > check.cycles: break
-		for signal_name, expr in tt.inputs.items():
-			sig = Symbol(module.io_prefix + signal_name, module.inputs[signal_name])
-			for (signal_msb, signal_lsb, (var_msb, var_lsb, var)) in FindVariableIntervals.find(expr):
-				is_full = signal_lsb == 0 and signal_msb + 1 == sig.symbol_type().width
-				if is_full:
-					sig_expr = sig
-				else:
-					sig_expr = BVExtract(sig, start=signal_lsb, end=signal_msb)
-				if var.is_symbol():
-					var2inputs[var][(var_msb, var_lsb)].append((ii + offset, sig_expr))
-				else:
-					assert var_lsb == 0 and var_msb + 1 == var.get_type().width, f"Expect constants to be simplified!"
-					# check that the input has the correct constant value in cycle ii+offset
-					if assume_dont_assert_requirements:
-						check.assume_at(ii + offset, Equals(sig_expr, var))
-					else:
-						check.assert_at(ii + offset, Equals(sig_expr, var))
-
-	# make sure that all arguments of the transaction are defined in the protocol
-	for name, tpe in tran.args.items():
-		if Symbol(name, tpe) not in var2inputs:
-			# TODO: uncomment
-			#print(f"WARN: in transaction {tran.name}: argument {name} is not defined by the protocol. Will be random!")
-			check.constant(Symbol(prefix + name, tpe))
-
-	# declare protocol arguments and their restrictions
-	for var, refs in var2inputs.items():
-		# check that there are no overlapping intervals as they aren't supported yet
-		covered_bits = set()
-		for (msb, lsb) in refs.keys():
-			for bit in range(lsb, msb + 1):
-				assert bit not in covered_bits, f"Overlapping intervals on {var}[{bit}]"
-				covered_bits.add(bit)
-
-		# check that all bits are defined
-		for bit in range(var.symbol_type().width):
-			if bit not in covered_bits:
-				# TODO: uncomment
-				#print(f"WARN: in transaction {tran.name}: argument bit {var}[{bit}] is not defined by the protocol.")
-				pass
-
-		# generate input constant
-		var_sym = Symbol(prefix + var.symbol_name(), var.symbol_type())
-		check.constant(var_sym)
-
-		# generate conditions for each interval
-		for ((msb, lsb), mappings) in refs.items():
-			assert len(mappings) > 0
-			full_range = msb + 1 == var.symbol_type().width and lsb == 0
-
-			# find (one of) the first references to this interval
-			mappings_sorted_by_cycle = sorted(mappings, key=lambda ii: ii[0])
-			start = mappings_sorted_by_cycle[0]
-
-			# we bind the start mapping to a constant and then check every other mapping against the constant
-			if full_range:
-				constant = var_sym
-			else:
-				constant = BVExtract(var_sym, start=lsb, end=msb)
-
-			# map the constant to the input variable symbol
-			check.assume_at(start[0], Equals(constant, start[1]))
-			for cycle, expr in mappings_sorted_by_cycle[1:]:
-				if assume_dont_assert_requirements:
-					check.assume_at(cycle, Equals(expr, constant))
-				else:
-					check.assert_at(cycle, Equals(expr, constant))
-
-
-def do_transaction(tran: Transaction, check: BoundedCheck, traces: Dict[str, List[Transaction]],
-				   invariances: List[SmtExpr], mod: RtlModule, subspecs: Dict[str, Spec],
-				   allow_incomplete: bool = False):
-	""" (symbolically) execute a transaction of the module being verified  """
-	assert check.cycles > 0, f"Zero cycle checks are not supported!"
-	if not allow_incomplete:
-		assert check.cycles == transaction_len(tran), f"need to fully unroll transaction! {check.cycles} vs {transaction_len(tran)}"
-
-	# assume invariances hold at the beginning of the transaction
-	for inv in invariances:
-		check.assume_at(0, inv)
-
-	# assume the environment applies the correct inputs to the toplevel module
-	generate_inputs(tran, mod, check, assume_dont_assert_requirements=True)
-
-	# apply cycle behavior of submodules
-	sub_arch_state_n = {}
-	for instance, subspec in subspecs.items():
-		subtrace = traces[instance]
-		submodule = mod.submodules[instance]
-
-		# declare architectural state at the beginning and at the end of the toplevel transaction
-		arch_state_begin = make_symbols(subspec.state, instance + ".")
-		declare_constants(check, arch_state_begin)
-		arch_state_end = make_symbols(subspec.state, instance + ".", "_n")
-		declare_constants(check, arch_state_end)
-		sub_arch_state_n = {**sub_arch_state_n, **{instance + "." + name: sym for name, sym in arch_state_end.items()}}
-
-		# start with start state
-		current_state = arch_state_begin
-
-		offsets = [0] + list(itertools.accumulate(transaction_len(tt) for tt in subtrace))
-		for ii, (offset, subtran) in enumerate(zip(offsets, subtrace)):
-			prefix = f"{instance}.{subtran.name}.{offset}."
-			# check that toplevel module applies valid inputs to the submodule
-			generate_inputs(subtran, submodule, check, offset, prefix, assume_dont_assert_requirements=False)
-			# assume that the submodule generates the correct outputs (this is ok because we assume no combinatorial loops)
-			generate_outputs(subtran, submodule, subspec.state, check, offset, prefix, assume_dont_assert_requirements=True)
-			# connect input state
-			for name, sym in current_state.items():
-				check.assume_always(Equals(Symbol(prefix+name, sym.symbol_type()), sym))
-			# remember output state
-			current_state = make_symbols(subspec.state, prefix, "_n")
-
-		# connect output state
-		for name, sym in arch_state_end.items():
-			check.assume_always(Equals(sym, current_state[name]))
-
-	return sub_arch_state_n
 
 class Verifier:
 	def __init__(self, mod: Module, prob: VerificationProblem, engine):
