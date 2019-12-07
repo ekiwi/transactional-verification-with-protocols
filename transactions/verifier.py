@@ -187,14 +187,14 @@ class VeriGraphToCheck:
 	def visit_final_state(self, guard: SmtExpr, ii: int):
 		# in any final state, the invariances need to hold!
 		for inv in self.invariances:
-			self.check.assert_at(ii, inv)
+			self.check.assert_at(ii, Implies(guard, inv))
 		self.final_states.append(guard)
 
 		# verify arch states after transaction
 		arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.spec.state.items()}
 		for mapping in self.mappings:
 			arch = substitute(mapping.arch, arch_next)
-			self.check.assert_at(ii, Equals(arch, mapping.impl))
+			self.check.assert_at(ii, Implies(guard, Equals(arch, mapping.impl)))
 
 	def visit_state(self, state: VeriState, guard: SmtExpr, ii: int):
 		if ii >= self.check.cycles:
