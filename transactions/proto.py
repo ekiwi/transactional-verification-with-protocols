@@ -6,8 +6,9 @@ import itertools
 
 from .spec import *
 from .smt2 import is_unsat
-from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL
+from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL, Not, Iff
 from collections import defaultdict
+from .utils import conjunction
 from typing import Set, Union, Iterator
 import copy
 from enum import Enum
@@ -15,8 +16,92 @@ from enum import Enum
 def make_symbols(symbols: Dict[str, SmtSort], prefix: str = "", suffix: str = "") -> Dict[str, Symbol]:
 	return {name: Symbol(prefix + name + suffix, tpe) for name, tpe in symbols.items()}
 
+@dataclass
+class ConstraintCache:
+	""" generates and caches cycle specific constraints (e.g. (done = 1), 2 --> (done@2 = 1) """
+	inputs: Dict[str, SmtSort]
+	outputs: Dict[str, SmtSort]
+	_substitution_cache: Dict[int, Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]] = field(default_factory=dict)
+	_constraint_cache: Dict[int, EdgeConstraints] = field(default_factory=dict)
+	def _get_substitution(self, cycle: int) -> Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]:
+		if cycle not in self._substitution_cache:
+			sub_i = {Symbol(name, typ): Symbol(f"{name}@{cycle}", typ) for name, typ in self.inputs.items()}
+			sub_o = {Symbol(name, typ): Symbol(f"{name}@{cycle}", typ) for name, typ in self.outputs.items()}
+			self._substitution_cache[cycle] = (sub_i, sub_o)
+		return self._substitution_cache[cycle]
+
+	@staticmethod
+	def _substitute(constraints: List[SmtExpr], sub):
+		return [substitute(f, sub) for f in constraints]
+
+	def get(self, edge: VeriEdge):
+		# convert "time-less" i/o constraints/mappings into cycle unique symbols
+		# e.g.: `(done = 1)` --> `(done@1 = 1)`
+		if id(edge) not in self._constraint_cache:
+			sub_i, sub_o = self._get_substitution(edge.ii)
+			self._constraint_cache[id(edge)] = EdgeConstraints(
+				input=self._substitute(edge.constraints.input, sub_i),
+				output=self._substitute(edge.constraints.output, sub_o),
+				arg=self._substitute(edge.constraints.arg, sub_i),
+				ret_arg=self._substitute(edge.constraints.ret_arg, sub_o)
+			)
+		return self._constraint_cache[id(edge)]
+
 
 ###################### Constraint Graph Merging
+def merge_constraint_graphs(g0: VeriSpec, g1: VeriSpec) -> VeriSpec:
+	return VeriGraphMerger().merge(g0, g1)
+
+
+@dataclass
+class VeriGraphMerger:
+	_constraints : ConstraintCache = None
+
+	def merge(self, g0: VeriSpec, g1: VeriSpec) -> VeriSpec:
+		assert g0.inputs == g1.inputs
+		assert g0.outputs == g1.outputs
+		assert g0.io_prefix == g1.io_prefix
+		self._constraints = ConstraintCache(g0.inputs, g1.outputs)
+		path_constraints: List[SmtExpr] = []
+		start = self.merge_states(g0.start, g1.start, path_constraints)
+		tts = {**g0.transactions, **g1.transactions}
+		return VeriSpec(inputs=g0.inputs, outputs=g0.outputs, io_prefix=g0.io_prefix, checked=False, start=start, transactions=tts)
+
+
+	def merge_states(self, s0: VeriState, s1: VeriState, path_constraints: List[SmtExpr]) -> VeriState:
+		#ii = s0.edges[0].ii
+		#print(f"Trying to merge @ {ii}: s0({s0.transactions} and s1({s1.transactions})")
+		new_state = VeriState([], {})
+		new_state.transactions = s0.transactions | s1.transactions
+		new_state.edges = copy.copy(s0.edges)
+
+		for e1 in s1.edges:
+			e1_constraints = self._constraints.get(e1)
+			merged = False
+			for e0 in new_state.edges:
+				e0_constraints = self._constraints.get(e0)
+				exclusive = is_unsat(conjunction(*(#path_constraints + # TODO: do we need path constraints? why? why not?
+									 e0_constraints.input + e0_constraints.output +
+									 e1_constraints.input + e1_constraints.output)))
+				if exclusive: continue
+				same = is_unsat(Not(And(
+					Iff(conjunction(*e0_constraints.input),  conjunction(*e1_constraints.input)),
+					Iff(conjunction(*e0_constraints.output), conjunction(* e1_constraints.output)))))
+				if same:
+					next_state = self.merge_states(e0.next, e1.next, path_constraints + e0_constraints.input + e0_constraints.output)
+					# replace e0 with merged edge
+					new_state.edges.remove(e0)
+					new_state.edges.append(replace(e0, next=next_state))
+					merged = True
+					break
+				assert same | exclusive, f"Edges {e0} and {e1} are not the same but also not mutually exclusive. Merge failed!"
+			# add new mutually exclusive edge
+			if not merged:
+				new_state.edges.append(e1)
+
+		return new_state
+
+
 
 
 ###################### Constraint Graph Verification + Meta Data Generator
@@ -40,39 +125,11 @@ def compare_edges(path_constraints: List[SmtExpr], a: EdgeConstraints, b: EdgeCo
 
 @dataclass
 class VeriGraphChecker:
-	inputs: Dict[str, SmtSort] = field(default_factory=dict)
-	outputs: Dict[str, SmtSort] = field(default_factory=dict)
-	_substitution_cache: Dict[int, Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]] = field(default_factory=dict)
-	_constraint_cache: Dict[int, EdgeConstraints] = field(default_factory=dict)
 	_edge_relations: Dict[Tuple[int, int], EdgeRelation] = field(default_factory=dict)
 	_max_k: int = 0
 	_edge_symbols: Dict[int,Symbol] = field(default_factory=dict)
 	_edge_names : Set[str] = field(default_factory=set)
-
-
-	def get_substitution(self, cycle: int) -> Tuple[Dict[Symbol, Symbol], Dict[Symbol, Symbol]]:
-		if cycle not in self._substitution_cache:
-			sub_i = {Symbol(name, typ): Symbol(f"{name}@{cycle}", typ) for name, typ in self.inputs.items()}
-			sub_o = {Symbol(name, typ): Symbol(f"{name}@{cycle}", typ) for name, typ in self.outputs.items()}
-			self._substitution_cache[cycle] = (sub_i, sub_o)
-		return self._substitution_cache[cycle]
-
-	@staticmethod
-	def substitute(constraints: List[SmtExpr], sub):
-		return [substitute(f, sub) for f in constraints]
-
-	def get_constraints(self, edge: VeriEdge):
-		# convert "time-less" i/o constraints/mappings into cycle unique symbols
-		# e.g.: `(done = 1)` --> `(done@1 = 1)`
-		if id(edge) not in self._constraint_cache:
-			sub_i, sub_o = self.get_substitution(edge.ii)
-			self._constraint_cache[id(edge)] = EdgeConstraints(
-				input=self.substitute(edge.constraints.input, sub_i),
-				output=self.substitute(edge.constraints.output, sub_o),
-				arg=self.substitute(edge.constraints.arg, sub_i),
-				ret_arg=self.substitute(edge.constraints.ret_arg, sub_o)
-			)
-		return self._constraint_cache[id(edge)]
+	_constraints : ConstraintCache = None
 
 	def get_unique_edge_name(self, ii:int) -> str:
 		prefix = f"edge@{ii}"
@@ -85,19 +142,18 @@ class VeriGraphChecker:
 		return name
 
 	def check(self, graph: VeriSpec) -> Tuple[Dict[Tuple[int, int], EdgeRelation], int, Dict[int, Symbol]]:
-		self.inputs = graph.inputs
-		self.outputs = graph.outputs
+		self._constraints = ConstraintCache(graph.inputs, graph.outputs)
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
 		return self._edge_relations, self._max_k+1, self._edge_symbols
 
 	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
 		for edge in state.edges:
-			edge_constraints = self.get_constraints(edge)
+			edge_constraints = self._constraints.get(edge)
 			# check relationship with other edges
 			for other in state.edges:
 				if id(edge) == id(other): continue
-				relation = compare_edges(path_constraints, edge_constraints, self.get_constraints(other))
+				relation = compare_edges(path_constraints, edge_constraints, self._constraints.get(other))
 				assert relation != EdgeRelation.CommonIOTrace, f"Edges with a common IO-trace are not supported by out model checking algorithm!" \
 															   f"Maybe reshape the graph. {edge} vs {other}"
 				# remember relationship
@@ -120,7 +176,7 @@ class VeriGraphChecker:
 		# create an edge symbol
 		self._edge_symbols[id(edge)] = Symbol(self.get_unique_edge_name(edge.ii), BOOL)
 		#
-		cc = self.get_constraints(edge)
+		cc = self._constraints.get(edge)
 		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
 
 def check_verification_graph(graph: VeriSpec) -> VeriSpec:
@@ -131,7 +187,7 @@ def check_verification_graph(graph: VeriSpec) -> VeriSpec:
 @dataclass
 class VeriState:
 	edges: List[VeriEdge]
-	transactions: List[Transaction]
+	transactions: Set[str]
 
 @dataclass
 class VeriEdge:
@@ -139,6 +195,8 @@ class VeriEdge:
 	# constraints of the form: `(done = 1)`
 	constraints: EdgeConstraints
 	next: Optional[VeriState] = None
+	def __str__(self):
+		return f"Edge(ii={self.ii}, constraints={self.constraints}, next=State(transactions={self.next.transactions}, degree={len(self.next.edges)})"
 
 @dataclass
 class EdgeConstraints:
@@ -153,6 +211,7 @@ class VeriSpec:
 	inputs: Dict[str, SmtSort]
 	outputs: Dict[str, SmtSort]
 	io_prefix: str
+	transactions: Dict[str, Transaction]
 	max_k: int = 0
 	checked : bool = False
 	edge_relations: Dict[Tuple[int, int], EdgeRelation] =  field(default_factory=dict)
@@ -261,7 +320,7 @@ class ProtocolToVerificationGraphConverter:
 		return new_edge
 
 	def visit_state(self, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], state: ProtocolState) -> VeriState:
-		new_state = VeriState([], transactions=[self.tran])
+		new_state = VeriState([], transactions={self.tran.name})
 		for edge in state.edges:
 			new_edge = self.visit_edge(prefix, arg_map, ret_arg_map, edge)
 			new_state.edges.append(new_edge)
@@ -278,7 +337,8 @@ class ProtocolToVerificationGraphConverter:
 
 def to_verification_graph(proto: Protocol, tran: Transaction, mod: RtlModule, io_prefix: str) -> VeriSpec:
 	start = ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix)
-	return VeriSpec(start=start, io_prefix=io_prefix, inputs=mod.inputs, outputs=mod.outputs)
+	tts = {tran.name: tran}
+	return VeriSpec(start=start, io_prefix=io_prefix, inputs=mod.inputs, outputs=mod.outputs, transactions=tts)
 
 
 

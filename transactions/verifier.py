@@ -10,7 +10,7 @@ from .utils import *
 from .spec import *
 from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
-from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, VeriEdge, EdgeRelation
+from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, VeriEdge, EdgeRelation, merge_constraint_graphs
 from typing import Iterable, Tuple, Union
 from collections import defaultdict
 
@@ -309,10 +309,9 @@ class Verifier:
 def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
 	# turn every individual transaction into a graph
 	tran_graphs = [to_verification_graph(tran.proto, tran, mod, "") for tran in spec.transactions]
-	if len(tran_graphs) > 1:
-		raise NotImplementedError("TODO: implement graph merging!")
-	else:
-		spec_graph = tran_graphs[0]
+	spec_graph = tran_graphs[0]
+	for other in tran_graphs[1:]:
+		spec_graph = merge_constraint_graphs(spec_graph, other)
 	# verify graph to check if it satisfies assumptions
 	return check_verification_graph(spec_graph)
 
