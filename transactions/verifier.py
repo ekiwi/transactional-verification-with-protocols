@@ -69,41 +69,6 @@ class Verifier:
 			for ii in self.prob.invariances:
 				check.assert_at(1, ii)
 
-	def find_transaction_trace(self, tran: Transaction, subspecs: Dict[str, Spec]) -> Dict[str, List[Transaction]]:
-		raise NotImplementedError()
-
-	def verify_transaction_trace_format(self, tran: Transaction, trace: Dict[str, List[Transaction]]):
-		raise NotImplementedError()
-
-	def verify_transaction(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
-		""" checks that the transaction output and the input to subtransactions is correct """
-		cycles = transaction_len(tran)
-		with BoundedCheck(f"transaction {tran.name} is correct", self, cycles=cycles) as check:
-			# instantiate unrolled transaction
-			subarch_n = do_transaction(tran=tran,traces=traces, check=check, invariances=self.prob.invariances,
-			                           mod=self.mod, subspecs=self.prob.submodules)
-
-			# verify that the outputs are correct
-			generate_outputs(tran, self.mod, self.prob.spec.state, check, assume_dont_assert_requirements=False)
-
-			# connect initial circuit and arch state
-			for mapping in self.prob.mappings:
-				check.assume_at(0, Equals(mapping.arch, mapping.impl))
-
-			# verify arch states after transaction
-			arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.prob.spec.state.items()}
-			subarch_next = {Symbol(name, sym.symbol_type()): sym for name, sym in subarch_n.items()}
-			for mapping in self.prob.mappings:
-				arch = substitute(mapping.arch, arch_next)
-				impl = substitute(mapping.impl, subarch_next)
-				check.assert_at(cycles, Equals(arch, impl))
-
-	def verify_inductive_step(self, tran: Transaction, traces: Dict[str, List[Transaction]]):
-		""" checks that the the invariants are inductive over transaction tran """
-		raise NotImplementedError()
-
-
-
 	def proof_all(self):
 		self.verify_inductive_base_case()
 
@@ -251,9 +216,3 @@ class VeriGraphToCheck:
 		# visit next states
 		for edge in state.edges:
 			self.visit_state(edge.next, self.graph.edge_symbols[id(edge)], ii+1)
-
-
-class FindVariableIntervals:
-	@staticmethod
-	def find(expr: SmtExpr):
-		raise NotImplementedError("Old Code")
