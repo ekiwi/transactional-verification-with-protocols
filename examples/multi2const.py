@@ -15,18 +15,14 @@ data_out = Symbol('data_out', BVType(64))
 p = ProtocolBuilder(mod)
 p['start'] = 1
 p['inp'] = data_in
-p['done'].expect(0)
 p.step()
 
 p['start'] = 0
 p['inp'] = DontCare
-
 for _ in range(3):
-	p['done'].expect(0)
 	p.step()
 
 p['out'].expect(data_out)
-p['done'].expect(1)
 ##############################
 
 protocol = p.finish()
@@ -36,11 +32,11 @@ ret_args={'data_out': BVType(64)}
 
 spec = Spec(
 	transactions=[Transaction(f"Delay", proto=protocol, semantics=semantics, args=args, ret_args=ret_args)],
-	idle=ProtocolBuilder(mod).inputs(start=0).outputs(done=0).finish()
+	idle=ProtocolBuilder(mod).inputs(start=0).finish()
 )
 
 invariances = [
-	Equals(Symbol('running', BVType(1)), BV(0,1)),
+#	Equals(Symbol('running', BVType(1)), BV(0,1)),
 	Equals(Symbol('lsb_unit.running', BVType(1)), BV(0,1)),
 	Equals(Symbol('msb_unit.running', BVType(1)), BV(0,1)),
 ]
