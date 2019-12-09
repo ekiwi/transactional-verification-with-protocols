@@ -6,14 +6,14 @@ from pysmt.shortcuts import *
 from transactions import *
 from functools import reduce
 
+mod = Module.load('multi0', ['multi0.v'])
 
-# TODO:
 
 data_in = Symbol('data_in', BVType(32))
 data_out = Symbol('data_out', BVType(32))
 
 ##############################
-p = ProtocolBuilder()
+p = ProtocolBuilder(mod)
 p['start'] = 1
 p['inp'] = data_in
 p['done'].expect(0)
@@ -49,7 +49,7 @@ def main() -> int:
 
 	prob = VerificationProblem(spec=spec, implementation='multi0',
 							   invariances=invariances, mappings=mappings)
-	mod = Module.load('multi0', ['multi0.v'])
+
 
 	ee = SMT2ProofEngine(outdir='../smt2')
 	#ee = MCProofEngine(outdir="../btor2")
