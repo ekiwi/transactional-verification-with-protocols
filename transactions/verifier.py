@@ -140,11 +140,13 @@ class VeriGraphToCheck:
 		self.check.assert_at(self.graph.max_k-1, at_least_one)
 
 	def assume_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
-		if consequent == TRUE(): return
-		self.check.assume_at(ii, Implies(antecedent, consequent))
+		if antecedent == FALSE() or consequent == TRUE(): return
+		impl = consequent if antecedent == TRUE() else Implies(antecedent, consequent)
+		self.check.assume_at(ii, impl)
 	def assert_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
-		if consequent == TRUE(): return
-		self.check.assert_at(ii, Implies(antecedent, consequent))
+		if antecedent == FALSE() or consequent == TRUE(): return
+		impl = consequent if antecedent == TRUE() else Implies(antecedent, consequent)
+		self.check.assert_at(ii, impl)
 
 	def visit_initial_state(self, ii: int):
 		# in the first state, we assume the invariances
