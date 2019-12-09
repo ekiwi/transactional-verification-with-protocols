@@ -139,6 +139,13 @@ class VeriGraphToCheck:
 		at_least_one = disjunction(*self.final_states)
 		self.check.assert_at(self.graph.max_k-1, at_least_one)
 
+	def assume_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
+		if consequent == TRUE(): return
+		self.check.assume_at(ii, Implies(antecedent, consequent))
+	def assert_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
+		if consequent == TRUE(): return
+		self.check.assert_at(ii, Implies(antecedent, consequent))
+
 	def visit_initial_state(self, ii: int):
 		# in the first state, we assume the invariances
 		for inv in self.invariances:
@@ -152,14 +159,14 @@ class VeriGraphToCheck:
 	def visit_final_state(self, guard: SmtExpr, ii: int):
 		# in any final state, the invariances need to hold!
 		for inv in self.invariances:
-			self.check.assert_at(ii, Implies(guard, inv))
+			self.assert_implies_at(ii, guard, inv)
 		self.final_states.append(guard)
 
 		# verify arch states after transaction
 		arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.spec.state.items()}
 		for mapping in self.mappings:
 			arch = substitute(mapping.arch, arch_next)
-			self.check.assert_at(ii, Implies(guard, Equals(arch, mapping.impl)))
+			self.assert_implies_at(ii, guard, Equals(arch, mapping.impl))
 
 	def visit_state(self, state: VeriState, guard: SmtExpr, ii: int):
 		if ii >= self.check.cycles:
@@ -186,8 +193,7 @@ class VeriGraphToCheck:
 		###########################################################################################
 
 		# restrict inputs to any of the provided edges
-		input_assumption = Implies(guard, disjunction(*I))
-		self.check.assume_at(ii, input_assumption)
+		self.assume_implies_at(ii, guard, disjunction(*I))
 
 		# output requirements for any combination of active edges
 		for bits in range(1 << len(state.edges)):
@@ -200,7 +206,7 @@ class VeriGraphToCheck:
 			outputs = [O[ii] for ii in range(len(state.edges)) if active[ii]]
 			consequent = disjunction(*outputs)
 
-			self.check.assert_at(ii, Implies(antecedent, consequent))
+			self.assert_implies_at(ii, antecedent, consequent)
 
 		# path computation and argument mappings
 		for ei, edge in enumerate(state.edges):
@@ -210,8 +216,8 @@ class VeriGraphToCheck:
 			self.check.constant(edge_sym)
 			self.check.assume_at(ii, Iff(edge_sym, next_cond))
 			# argument mapping
-			if A[ei] != TRUE(): self.check.assume_at(ii, Implies(edge_sym, A[ei]))
-			if R[ei] != TRUE(): self.check.assert_at(ii, Implies(edge_sym, R[ei]))
+			self.assume_implies_at(ii, edge_sym, A[ei])
+			self.assert_implies_at(ii, edge_sym, R[ei])
 
 		# visit next states
 		for edge in state.edges:
