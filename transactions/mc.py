@@ -303,6 +303,7 @@ class Smt2ToBtor2(DagWalker):
 
 	def walk_bv_add(self, formula, args, **kwargs): return self.walk_binop("add", formula, args, **kwargs)
 	def walk_bv_sub(self, formula, args, **kwargs): return self.walk_binop("sub", formula, args, **kwargs)
+	def walk_bv_mul(self, formula, args, **kwargs): return self.walk_binop("mul", formula, args, **kwargs)
 	def walk_bv_or(self, formula, args, **kwargs): return self.walk_binop("or", formula, args, **kwargs)
 	def walk_or(self, formula, args, **kwargs): return self.walk_binop("or", formula, args, **kwargs)
 	def walk_bv_and(self, formula, args, **kwargs): return self.walk_binop("and", formula, args, **kwargs)
