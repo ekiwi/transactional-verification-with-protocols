@@ -26,7 +26,7 @@ TOP_TYPE* top = nullptr;
 
 
 static void set(const std::string& name, const std::string& num_str) {{
-	uint64_t value = std::stoll(num_str);
+	uint64_t value = std::stoull(num_str);
 	if(false) {{}}
 {sett}
 	else {{
@@ -113,8 +113,10 @@ def make_sim_script(top: Module, m: Model):
 def simulate(top: Module, m: Model, filename: str):
 	cwd = tempfile.mkdtemp()
 	sim = compile_sim(top, cwd=cwd)
+
+	script_content = '\n'.join(make_sim_script(top, m)) + '\n'
 	with open(os.path.join(cwd, 'script'), 'w') as ff:
-		ff.write('\n'.join(make_sim_script(top, m)) + '\n')
+		ff.write(script_content)
 	sim_path = os.path.join(cwd, sim)
 	script_path = os.path.join(cwd, 'script')
 
