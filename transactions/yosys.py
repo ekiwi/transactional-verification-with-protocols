@@ -227,7 +227,8 @@ def parse_ilang(ilang_src: str) -> dict:
 			if cell is not None: cell['parameters'].append(param)
 			else: mod['parameters'].append(param)
 		elif p[0] == 'connect':
-			con = {'attributes': attributes, 'lhs': p[1], 'rhs': p[2]}
+			#if len(p) > 3: print(f"{p} is missing suffix: {p[3:]}")
+			con = {'attributes': attributes, 'lhs': p[1], 'rhs': ''.join(p[2:])}
 			if cell is not None: cell['connects'].append(con)
 			else: mod['connects'].append(con)
 		elif p[0] in {'autoidx'}:
