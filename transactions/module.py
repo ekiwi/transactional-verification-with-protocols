@@ -33,9 +33,8 @@ def load_module(name: str, verilog_files: List[str], ignore_wires: bool, blackbo
 		ilang_modules = parse_ilang(src['ilang'])
 		cmds, submod_data = expose_modules(ilang_modules, top=name, expose=blackbox)
 		cmds = [f"select {name}"] + cmds + ["select *", "clean"]
-		for data in submod_data:
-			submod = dict_to_module(data, src=None, reset=find_reset(data, high_active_reset), submodules=None)
-			submodules[submod.name] = submod
+		for subname, data in submod_data.items():
+			submodules[subname] = dict_to_module(data, src=None, reset=find_reset(data, high_active_reset), submodules=None)
 
 	src = parse_verilog(verilog_files, top=name, ignore_wires=ignore_wires, formats=['v', 'smt2', 'btor'], pre_mc_cmds=cmds)
 	smt2_names = parse_yosys_smt2(src['smt2'])
@@ -50,11 +49,10 @@ class Module(RtlModule):
 	def load(name: str, verilog_files: List[str], ignore_wires: bool = True, blackbox: Optional[List[str]] = None, high_active_reset=True):
 		return load_module(name=name, verilog_files=verilog_files, ignore_wires=ignore_wires, blackbox=blackbox, high_active_reset=high_active_reset)
 
-	def __init__(self, name: str, type: str, inputs: Dict[str,SmtSort], outputs: Dict[str,SmtSort], state: Dict[str,SmtSort],
+	def __init__(self, name: str, inputs: Dict[str,SmtSort], outputs: Dict[str,SmtSort], state: Dict[str,SmtSort],
 	wires: Dict[str,SmtSort], smt2_src: str, btor2_src: str, verilog_src: str, submodules: Dict[str, Module],
 	reset: Optional[Reset] = None, io_prefix: str = ""):
 		self._name = name
-		self._type = type
 		self.io_prefix = io_prefix
 		self.inputs = inputs
 		self.outputs = outputs
