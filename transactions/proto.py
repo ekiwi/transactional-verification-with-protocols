@@ -139,7 +139,7 @@ class VeriGraphChecker:
 			suffix += 1
 		return name
 
-	def check(self, graph: VeriSpec) -> Tuple[Dict[Tuple[int, int], EdgeRelation], int, Dict[str, int]]:
+	def check(self, graph: VeriSpec, io_prefix: str) -> Tuple[Dict[Tuple[int, int], EdgeRelation], int, Dict[str, int]]:
 		self._constraints = ConstraintCache(graph.inputs, graph.outputs)
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
@@ -177,8 +177,8 @@ class VeriGraphChecker:
 		cc = self._constraints.get(edge)
 		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
 
-def check_verification_graph(graph: VeriSpec) -> VeriSpec:
-	edge_relations, max_k, edge_name_to_id = VeriGraphChecker().check(graph)
+def check_verification_graph(graph: VeriSpec, io_prefix: str) -> VeriSpec:
+	edge_relations, max_k, edge_name_to_id = VeriGraphChecker().check(graph, io_prefix)
 	edge_id_to_name = {ii: name for name, ii in edge_name_to_id.items()}
 	return replace(graph, checked=True, edge_relations=edge_relations, max_k=max_k, edge_name_to_id=edge_name_to_id, edge_id_to_name=edge_id_to_name)
 
@@ -337,10 +337,12 @@ class ProtocolToVerificationGraphConverter:
 		check_arg_map(self.tran.ret_args, ret_arg_map, str(path), self.arg_prefix)
 
 
-def to_verification_graph(proto: Protocol, tran: Transaction, mod: RtlModule, io_prefix: str) -> VeriSpec:
-	start = ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix, mod.name)
+def to_verification_graph(proto: Protocol, tran: Transaction, mod: RtlModule) -> VeriSpec:
+	start = ProtocolToVerificationGraphConverter().convert(proto, tran, mod.io_prefix, mod.name)
 	tts = {tran.name: tran}
-	return VeriSpec(start=start, io_prefix=io_prefix, inputs=mod.inputs, outputs=mod.outputs, transactions=tts)
+	inputs = {mod.io_prefix+name: tpe for name, tpe in mod.inputs.items()}
+	outputs = {mod.io_prefix + name: tpe for name, tpe in mod.inputs.items()}
+	return VeriSpec(start=start, io_prefix=mod.io_prefix, inputs=inputs, outputs=outputs, transactions=tts)
 
 
 
