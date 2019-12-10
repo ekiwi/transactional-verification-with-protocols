@@ -190,7 +190,7 @@ class Solver:
 		self.funs = []
 
 	def add(self, *assertions):
-		self.assertions += [self.simplify(a) for a in  assertions]
+		self.assertions += [a for a in (self.simplify(a) for a in  assertions) if a != TRUE()]
 
 	def comment(self, s: str):
 		self.assertions.append(str(s))
