@@ -37,7 +37,6 @@ class Verifier:
 		self.prob = prob
 		self.mod = mod
 		self.engine = engine
-		self.topgraph = to_veri_spec(self.mod, self.prob.spec)
 		self.verbose = True
 
 	def verify_inductive_base_case(self):
@@ -56,18 +55,31 @@ class Verifier:
 	def proof_all(self):
 		self.verify_inductive_base_case()
 
-		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=self.topgraph.max_k) as check:
-			encode_toplevel_module(graph=self.topgraph, check=check, spec=self.prob.spec, mod=self.mod, invariances=self.prob.invariances, mappings=self.prob.mappings)
+		topgraph = to_veri_spec(self.mod, self.prob.spec)
+		subgraphs = {nn: to_veri_spec(self.mod.submodules[nn], spec) for nn, spec in self.prob.submodules.items()}
+		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=topgraph.max_k) as check:
+			encode_toplevel_module(graph=topgraph, check=check, spec=self.prob.spec, mod=self.mod,
+			                       invariances=self.prob.invariances, mappings=self.prob.mappings)
+			for instance, spec in self.prob.submodules.items():
+				encode_submodule(offset=0, instance=instance, graph=subgraphs[instance], check=check, spec=spec, mod=self.mod.submodules[instance])
+
 
 
 def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
 	# turn every individual transaction into a graph
-	tran_graphs = [to_verification_graph(tran.proto, tran, mod, "") for tran in spec.transactions]
+	tran_graphs = [to_verification_graph(tran.proto, tran, mod) for tran in spec.transactions]
 	spec_graph = tran_graphs[0]
 	for other in tran_graphs[1:]:
 		spec_graph = merge_constraint_graphs(spec_graph, other)
 	# verify graph to check if it satisfies assumptions
-	return check_verification_graph(spec_graph)
+	return check_verification_graph(spec_graph, io_prefix=mod.io_prefix)
+
+def encode_submodule(offset: int, instance: str, graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule):
+	final_states = encode_module(is_toplevel=False, offset=offset, prefix=f"{instance}.", graph=graph, check=check, spec=spec, mod=mod)
+
+	assert len(final_states) > 0, f"found no final states!"
+	# TODO: search for paths...
+
 
 def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule, invariances: List[SmtExpr], mappings: List[StateMapping]):
 	# in the first state, we assume the invariances hold
@@ -92,7 +104,7 @@ def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod
 			check.assert_at(state.ii, Implies(state.guard, Equals(arch, mapping.impl)))
 
 	# we have to explore at least one final state
-	assert len(final_states) > 0, f"found not final states!"
+	assert len(final_states) > 0, f"found no final states!"
 	at_least_one = disjunction(*(st.guard for st in final_states))
 	check.assert_at(graph.max_k-1, at_least_one)
 
