@@ -161,7 +161,6 @@ def parse_yosys_btor(btor_src: str) -> dict:
 
 def merge_smt2_and_btor(smt2_names: dict, btor_names: dict) -> dict:
 	mod = {'name': smt2_names['name']}
-	mod['type'] = mod['name']
 	for cat in ['inputs', 'outputs', 'registers', 'memories', 'wires']:
 		mod[cat] = {}
 		for name, args in smt2_names[cat].items():
@@ -248,11 +247,11 @@ ExposePrefix: str = "__EXP_"
 
 def expose_modules(modules: dict, top: str, expose: List[str]):
 	cmds = []
-	submods = []
+	submods = {}
 	for instance in expose:
 		new_cmds, new_submods = expose_module(modules, top, instance)
 		cmds += new_cmds
-		submods += new_submods
+		submods = {**submods, **new_submods}
 	return cmds, submods
 
 def expose_module(modules: dict, top: str, instance_name: str):
@@ -270,7 +269,6 @@ def expose_module(modules: dict, top: str, instance_name: str):
 	port_names = set(w['name'] for w in chain(top_type['inputs'].values(), top_type['outputs'].values()))
 
 	cmds = []
-	submods = []
 
 	def add_port(p_mod, p_name: str, p_dir: str, p_bits: int):
 		# p_dir is from the view of the module being exposed
@@ -285,7 +283,7 @@ def expose_module(modules: dict, top: str, instance_name: str):
 		return mangled_name
 
 	con = instance['connects']
-	mod = {'name': instance_name, 'type': instance_type_name, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {},
+	mod = {'name': instance_type_name, 'inputs': {}, 'outputs': {}, 'wires': {}, 'state': {},
 		   'io_prefix': f"{ExposePrefix}{instance_name}_"}
 
 	# add i/o
@@ -306,5 +304,4 @@ def expose_module(modules: dict, top: str, instance_name: str):
 	# delete cell
 	cmds.append(f"delete {instance_name}")
 
-	submods.append(mod)
-	return cmds, submods
+	return cmds, {instance_name: mod}
