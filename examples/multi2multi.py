@@ -8,8 +8,8 @@ from functools import reduce
 
 mod = Module.load('multi2multi', ['multi0.v', 'multi2multi.v'])
 
-data_in = Symbol('data_in', BVType(64))
-data_out = Symbol('data_out', BVType(64))
+data_in = Symbol('multi2multi.Delay.data_in', BVType(64))
+data_out = Symbol('multi2multi.Delay.data_out', BVType(64))
 
 ##############################
 p = ProtocolBuilder(mod)

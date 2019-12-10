@@ -6,11 +6,11 @@ from pysmt.shortcuts import *
 from transactions import *
 from functools import reduce
 
-mod = Module.load('multi0', ['multi0.v'])
+mod = Module.load('multi_data', ['multi_data.v'])
 
 
-data_in = Symbol('data_in', BVType(32))
-data_out = Symbol('data_out', BVType(32))
+data_in = Symbol('multi_data.Delay.data_in', BVType(32))
+data_out = Symbol('multi_data.Delay.data_out', BVType(32))
 
 ##############################
 p = ProtocolBuilder(mod)
@@ -47,7 +47,7 @@ mappings = []
 
 def main() -> int:
 
-	prob = VerificationProblem(spec=spec, implementation='multi0',
+	prob = VerificationProblem(spec=spec, implementation='multi_data',
 							   invariances=invariances, mappings=mappings)
 
 

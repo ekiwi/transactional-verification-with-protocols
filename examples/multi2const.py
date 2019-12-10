@@ -9,8 +9,8 @@ toplevel = 'multi2const'
 src = ['multi0.v', 'multi2const.v']
 mod = Module.load(toplevel, src)
 
-data_in = Symbol('dat_in', BVType(64))
-data_out = Symbol('dat_out', BVType(64))
+data_in = Symbol('multi2const.Delay.dat_in', BVType(64))
+data_out = Symbol('multi2const.Delay.dat_out', BVType(64))
 
 ##############################
 p = ProtocolBuilder(mod)

@@ -127,8 +127,7 @@ def compare_edges(path_constraints: List[SmtExpr], a: EdgeConstraints, b: EdgeCo
 class VeriGraphChecker:
 	_edge_relations: Dict[Tuple[int, int], EdgeRelation] = field(default_factory=dict)
 	_max_k: int = 0
-	_edge_symbols: Dict[int,Symbol] = field(default_factory=dict)
-	_edge_names : Set[str] = field(default_factory=set)
+	_edge_names: Dict[str, int] = field(default_factory=dict)
 	_constraints : ConstraintCache = None
 
 	def get_unique_edge_name(self, ii:int) -> str:
@@ -138,14 +137,13 @@ class VeriGraphChecker:
 		while name in self._edge_names:
 			name = f"{prefix}_{suffix}"
 			suffix += 1
-		self._edge_names.add(name)
 		return name
 
-	def check(self, graph: VeriSpec) -> Tuple[Dict[Tuple[int, int], EdgeRelation], int, Dict[int, Symbol]]:
+	def check(self, graph: VeriSpec) -> Tuple[Dict[Tuple[int, int], EdgeRelation], int, Dict[str, int]]:
 		self._constraints = ConstraintCache(graph.inputs, graph.outputs)
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
-		return self._edge_relations, self._max_k+1, self._edge_symbols
+		return self._edge_relations, self._max_k+1, self._edge_names
 
 	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
 		for edge in state.edges:
@@ -174,14 +172,15 @@ class VeriGraphChecker:
 		#
 		self._max_k = max(self._max_k, edge.ii+1)
 		# create an edge symbol
-		self._edge_symbols[id(edge)] = Symbol(self.get_unique_edge_name(edge.ii), BOOL)
+		self._edge_names[self.get_unique_edge_name(edge.ii)] = id(edge)
 		#
 		cc = self._constraints.get(edge)
 		self.visit_state(edge.next, path_constraints + cc.input + cc.arg + cc.output + cc.ret_arg)
 
 def check_verification_graph(graph: VeriSpec) -> VeriSpec:
-	edge_relations, max_k, edge_symbols = VeriGraphChecker().check(graph)
-	return replace(graph, checked=True, edge_relations=edge_relations, max_k=max_k, edge_symbols=edge_symbols)
+	edge_relations, max_k, edge_name_to_id = VeriGraphChecker().check(graph)
+	edge_id_to_name = {ii: name for name, ii in edge_name_to_id.items()}
+	return replace(graph, checked=True, edge_relations=edge_relations, max_k=max_k, edge_name_to_id=edge_name_to_id, edge_id_to_name=edge_id_to_name)
 
 ##### Verification Protocol
 @dataclass
@@ -215,7 +214,8 @@ class VeriSpec:
 	max_k: int = 0
 	checked : bool = False
 	edge_relations: Dict[Tuple[int, int], EdgeRelation] =  field(default_factory=dict)
-	edge_symbols: Dict[int, Symbol] = field(default_factory=dict)
+	edge_id_to_name: Dict[int, str] = field(default_factory=dict)
+	edge_name_to_id: Dict[str, int] = field(default_factory=dict)
 
 
 
@@ -234,7 +234,7 @@ def range_to_bitmap(msb: int, lsb: int) -> int:
 	mask = (1 << width) - 1
 	return mask << lsb
 
-def find_constraints_and_mappings(io_prefix: str, var_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int]) -> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int]]:
+def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int]) -> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int]]:
 	""" works for input or output signals """
 
 	constraints: List[SmtExpr] = []
@@ -258,10 +258,7 @@ def find_constraints_and_mappings(io_prefix: str, var_prefix: str, signals: Dict
 			if var.is_symbol():
 				var_name = var.symbol_name()
 				assert var_name in var_map, f"Unexpected variable: {var} in {signal_name} = {expr}. Expecteds variables are: {list(var_map.keys())}"
-				# we add a prefix in order to avoid name clashes when merging transaction graphs or when model checking with other graphs
-				renamed_var = Symbol(var_prefix + var_name, var.symbol_type())
-				var_expr = extract_if_not_redundant(renamed_var, msb=var_msb, lsb=var_lsb)
-				# TODO: rename variable to {spec.name}.{tran.name}.{var.symbol_name()} in order to avoid name clashes
+				var_expr = extract_if_not_redundant(var, msb=var_msb, lsb=var_lsb)
 
 				current_bits = range_to_bitmap(var_msb, var_lsb)
 				existing_bits = var_map[var_name]
@@ -288,8 +285,9 @@ def find_constraints_and_mappings(io_prefix: str, var_prefix: str, signals: Dict
 
 	return constraints, mappings, new_var_map
 
-def check_arg_map(args: Dict[str, SmtSort], arg_map: Dict[str, int], path: str):
-	for name, typ in args.items():
+def check_arg_map(args: Dict[str, SmtSort], arg_map: Dict[str, int], path: str, prefix: str):
+	for name_suffix, typ in args.items():
+		name = prefix + name_suffix
 		assert name in arg_map, f"Argument {name} : {typ} missing in path: {path}"
 		assert typ.is_bv_type()
 		full = range_to_bitmap(typ.width - 1, 0)
@@ -298,12 +296,14 @@ def check_arg_map(args: Dict[str, SmtSort], arg_map: Dict[str, int], path: str):
 @dataclass
 class ProtocolToVerificationGraphConverter:
 	io_prefix: str = ""
+	arg_prefix: str = ""
 	tran: Transaction = None
-	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str) -> VeriState:
+	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str, mod_name: str) -> VeriState:
 		self.io_prefix = io_prefix
+		self.arg_prefix = f"{mod_name}.{tran.name}."
 		self.tran = tran
-		arg_map = {name: 0 for name in tran.args.keys()}
-		ret_arg_map = {name: 0 for name in tran.ret_args.keys()}
+		arg_map     = {self.arg_prefix + name: 0 for name in tran.args.keys()}
+		ret_arg_map = {self.arg_prefix + name: 0 for name in tran.ret_args.keys()}
 		start = self.visit_state([], arg_map, ret_arg_map, proto.start)
 		return start
 
@@ -311,9 +311,8 @@ class ProtocolToVerificationGraphConverter:
 		# the current transition id is the prefix length
 		ii = len(prefix)
 
-		var_prefix = f"{self.tran.name}."
-		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, var_prefix, edge.inputs, arg_map)
-		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, var_prefix, edge.outputs, ret_arg_map)
+		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, edge.inputs, arg_map)
+		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, edge.outputs, ret_arg_map)
 		constraints = EdgeConstraints(input_constraints, output_constraints, input_mappings, output_mappings)
 
 		new_edge = VeriEdge(ii, constraints)
@@ -334,12 +333,12 @@ class ProtocolToVerificationGraphConverter:
 	def check_path(self, path: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int]):
 		# check to make sure all input and output arguments of the transactions are mapped to module I/Os
 		# TODO: there might be legit use cases for not mapping all outputs (maybe even inputs)
-		check_arg_map(self.tran.args, arg_map, str(path))
-		check_arg_map(self.tran.ret_args, ret_arg_map, str(path))
+		check_arg_map(self.tran.args, arg_map, str(path), self.arg_prefix)
+		check_arg_map(self.tran.ret_args, ret_arg_map, str(path), self.arg_prefix)
 
 
 def to_verification_graph(proto: Protocol, tran: Transaction, mod: RtlModule, io_prefix: str) -> VeriSpec:
-	start = ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix)
+	start = ProtocolToVerificationGraphConverter().convert(proto, tran, io_prefix, mod.name)
 	tts = {tran.name: tran}
 	return VeriSpec(start=start, io_prefix=io_prefix, inputs=mod.inputs, outputs=mod.outputs, transactions=tts)
 
