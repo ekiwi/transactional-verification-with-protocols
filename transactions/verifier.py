@@ -113,6 +113,15 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 
 	module_prefix = prefix + mod.name + "."
 
+	# generate variable mappings in case there is another prefix:
+	# in general state variables are of the form: ModuleName.StateName
+	# if we have multiple instances, we need to convert them to: InstanceName.ModuleName.StateName
+	# a similar thing is true for arguments and return arguments
+	if prefix == "":
+		mapping = {}
+	else:
+		mapping = {}
+
 	# declare architectural state
 	state_syms = make_symbols(spec.state, module_prefix)
 	declare_constants(check, state_syms)
@@ -123,7 +132,8 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 		arg_syms = make_symbols(tran.args, prefix=tran_prefix)
 		declare_constants(check, arg_syms)
 
-		mapping = map_symbols(merge_indices(arg_syms, state_syms))
+		# TODO: correct mapping
+		#mapping = map_symbols(merge_indices(arg_syms, state_syms))
 
 		# calculate semantics of this transaction
 		for ret_name, ret_tpe in tran.ret_args.items():
@@ -136,6 +146,8 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 			next_state = tran.semantics.get(state_name, prev_state)
 			check.function(Symbol(module_prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
 
+
+
 	# encode graph
 	final_states = VeriGraphToCheck(is_toplevel, offset, module_prefix, graph, check, get_inactive_reset(mod)).convert()
 	return final_states
@@ -145,8 +157,10 @@ class FinalState:
 	guard: SmtExpr
 	ii: int
 
+SymMap = Dict[Symbol, Symbol]
+
 class VeriGraphToCheck:
-	def __init__(self, is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr]):
+	def __init__(self, is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr], var_sub: SymMap):
 		assert graph.checked, f"Graph not checked! {graph}"
 		self.offset = offset
 		self.prefix = prefix
@@ -155,6 +169,7 @@ class VeriGraphToCheck:
 		self.inactive_rst = inactive_rst
 		self.is_toplevel = is_toplevel
 		self.final_states: List[FinalState] = []
+		self.arg_sub = var_sub
 		self.edge_symbols = {}
 
 	def convert(self) -> List[FinalState]:
@@ -180,9 +195,9 @@ class VeriGraphToCheck:
 		# argument mappings
 		A = [conjunction(*edge.constraints.arg) for edge in state.edges]
 		# output constraints
-		O = [conjunction(*edge.constraints.output) for edge in state.edges]
+		O = [substitute(conjunction(*edge.constraints.output), self.arg_sub) for edge in state.edges]
 		# return argument mappings
-		R = [conjunction(*edge.constraints.ret_arg) for edge in state.edges]
+		R = [substitute(conjunction(*edge.constraints.ret_arg), self.arg_sub) for edge in state.edges]
 
 		###########################################################################################
 		# naive encoding (assuming all edges could have common inputs, but I/O is always exclusive)
