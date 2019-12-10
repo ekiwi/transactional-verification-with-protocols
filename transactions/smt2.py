@@ -5,7 +5,8 @@
 import functools
 import subprocess, tempfile, os, re
 from cache_to_disk import cache_to_disk
-from pysmt.shortcuts import *
+from pysmt.shortcuts import Symbol, FunctionType, BOOL, Function, Ite, get_free_variables, Not, Type, substitute
+import pysmt.simplifier
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 from itertools import chain
 import time
@@ -20,6 +21,8 @@ class SMT2ProofEngine:
 		self.name = 'smt2'
 		self.outdir = outdir
 		self.simplify = simplify
+		if self.simplify:
+			print("WARN: running with unproven simplifications.")
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
@@ -177,7 +180,11 @@ class Solver:
 		self.header = header
 		self.logic = logic
 		self.bin = bin
-		self.simplify = simplify if do_simplify else lambda x: x
+		if do_simplify:
+			simpl = Simplifier()
+			self.simplify = lambda f: simpl.simplify(f)
+		else:
+			self.simplify = lambda f: f
 		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
 		self.assertions = []
 		self.funs = []
@@ -339,3 +346,25 @@ def is_unsat(e) -> bool:
 	funs = list(functools.reduce(lambda a,b: a|b,  (get_free_variables(a) for a in asserts)))
 	out, delta = _solve.check_sat(filename=f.name, assertions=asserts, funs=funs)
 	return out == 'unsat'
+
+class Simplifier(pysmt.simplifier.Simplifier):
+	""" Custom simplifications to make it easier to read generated SMT2 """
+	def __init__(self, env=None):
+		super().__init__(env=env)
+
+	def walk_equals(self, formula, args, **kwargs):
+		"""
+			For simplicity, all signals are modelled  as BV<N> in the frontend.
+			However, yosys treats 1-bit signals as bool typed.
+			This leads to a frequent pattern where we want to say `signal = 1`, which
+			gets expressed as `(= (ite signal, #b1, #b0) #b1)`.
+			This transform turns that into `(signal)`
+		"""
+		# recognize the ite(expr, #b1, #b0) pattern used to convert to bv
+		is_bool_to_bv = lambda: args[0].is_ite() and args[0].args()[1] == BV(1,1) and args[0].args()[2] == BV(0,1)
+		if args[1].is_bv_constant() and is_bool_to_bv():
+			if args[1] == BV(1,1): return args[0].args()[0]
+			if args[1] == BV(0,1): return Not(args[0].args()[0])
+			assert False, "Should not get here"
+		else:
+			return super().walk_equals(formula, args, **kwargs)
