@@ -8,8 +8,8 @@ from functools import reduce
 
 mod = Module.load('multi0', ['multi0.v'])
 
-data_in = Symbol('data_in', BVType(32))
-data_out = Symbol('data_out', BVType(32))
+data_in = Symbol('multi0.Delay.data_in', BVType(32))
+data_out = Symbol('multi0.Delay.data_out', BVType(32))
 
 ##############################
 p = ProtocolBuilder(mod)

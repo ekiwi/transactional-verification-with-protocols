@@ -9,7 +9,8 @@ from typing import Optional
 from .proto import protocol_edges
 
 
-def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, Any], msg: str, tpe: Optional[SmtSort] = None):
+def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, SmtSort], msg: str, tpe: Optional[SmtSort] = None, prefix: str = ""):
+	if len(prefix) > 0: allowed_symbols = {prefix+name: tpe for name, tpe in allowed_symbols.items()}
 	for sym in get_free_variables(e):
 		name, sort = sym.symbol_name(), sym.symbol_type()
 		assert name in allowed_symbols, f"Expression {e} refers to unknown symbol {sym}.\n{msg}"
@@ -92,11 +93,13 @@ def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
 		for pin, expr in ee.inputs.items():
 			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
 			check_smt_expr(expr, tran.args, tpe=mod.inputs[pin],
-						   msg="Input pins may be bound to constants or transaction arguments.")
+						   msg="Input pins may be bound to constants or transaction arguments.",
+						   prefix=f"{mod.name}.{tran.name}.")
 		for pin, expr in ee.outputs.items():
 			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
 			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
-						   msg="Output pins may be bound to constants or transaction return arguments.")
+						   msg="Output pins may be bound to constants or transaction return arguments.",
+						   prefix=f"{mod.name}.{tran.name}.")
 
 def legacy_converter(proto: LegacyProtocol) -> Protocol:
 	start = ProtocolState()
@@ -120,11 +123,13 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	for arg_name, arg_tpe in tran.ret_args.items():
 		assert arg_name in tran.semantics, f"Need to define return parameter {arg_name} : {arg_tpe} in semantics!"
 		check_smt_expr(tran.semantics[arg_name], input_symbols, tpe=arg_tpe,
-					   msg="Semantics can only refer to arguments and architectural state.")
+					   msg="Semantics can only refer to arguments and architectural state.",
+					   prefix=f"{mod.name}.{tran.name}.")
 	for state_name, state_tpe in arch_state_symbols.items():
 		if state_name in tran.semantics:
 			check_smt_expr(tran.semantics[state_name], input_symbols, tpe=state_tpe,
-						   msg="Semantics can only refer to arguments and architectural state.")
+						   msg="Semantics can only refer to arguments and architectural state.",
+						   prefix=f"{mod.name}.")
 	output_names = set(output_symbols.keys())
 	unknown_outputs = set(tran.semantics.keys()) - output_names
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
