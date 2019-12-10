@@ -16,15 +16,16 @@ from typing import Tuple, List
 
 
 class SMT2ProofEngine:
-	def __init__(self, outdir=None):
+	def __init__(self, outdir=None, simplify:bool=False):
 		self.name = 'smt2'
 		self.outdir = outdir
+		self.simplify = simplify
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
 	def check(self, check: BoundedCheckData, mod: Module, verify_assumptions=True):
 		start = time.time()
-		solver = Solver(header=mod.smt2_src)
+		solver = Solver(header=mod.smt2_src, do_simplify=self.simplify)
 
 		# derive function names for module unrolling
 		state_t = Type(mod.name + "_s")
@@ -172,16 +173,17 @@ sat = "sat"
 unsat = "unsat"
 
 class Solver:
-	def __init__(self, header, logic='QF_AUFBV', bin='yices-smt2'):
+	def __init__(self, header, logic='QF_AUFBV', bin='yices-smt2', do_simplify:bool=False):
 		self.header = header
 		self.logic = logic
 		self.bin = bin
+		self.simplify = simplify if do_simplify else lambda x: x
 		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
 		self.assertions = []
 		self.funs = []
 
 	def add(self, *assertions):
-		self.assertions += assertions
+		self.assertions += [self.simplify(a) for a in  assertions]
 
 	def comment(self, s: str):
 		self.assertions.append(str(s))
