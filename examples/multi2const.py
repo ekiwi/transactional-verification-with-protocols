@@ -54,11 +54,11 @@ abs_mod = Module.load(toplevel, src, blackbox=list(abstracted_check.submodules.k
 
 def main() -> int:
 
-	ee = SMT2ProofEngine(outdir='../smt2')
+	ee = SMT2ProofEngine(outdir='../smt2', simplify=True)
 	#ee = MCProofEngine(outdir="../btor2")
 
-	print("Verifying flattened implementation")
-	Verifier(mod, no_abstraction_check, ee).proof_all()
+	#print("Verifying flattened implementation")
+	#Verifier(mod, no_abstraction_check, ee).proof_all()
 
 	print("Verifying implementation with submodules replaced by their spec")
 	Verifier(abs_mod, abstracted_check, ee).proof_all()

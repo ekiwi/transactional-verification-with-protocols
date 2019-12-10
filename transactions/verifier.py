@@ -98,87 +98,80 @@ def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
 	return check_verification_graph(spec_graph)
 
 def encode_veri_graph(spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr], mappings: List[StateMapping]):
-	return VeriGraphToCheck().convert(spec, graph, check, invariances, mappings)
+
+	# TODO
+	# def visit_initial_state(self, ii: int):
+	# 	# in the first state, we assume the invariances
+	# 	for inv in self.invariances:
+	# 		self.check.assume_at(ii, inv)
+	#
+	# 	# connect initial circuit and arch state
+	# 	for mapping in self.mappings:
+	# 		# TODO: this does not really work for offset != 0
+	# 		self.check.assume_at(ii, Equals(mapping.arch, mapping.impl))
+	#
+	# def visit_final_state(self, guard: SmtExpr, ii: int):
+	# 	# in any final state, the invariances need to hold!
+	# 	for inv in self.invariances:
+	# 		self.assert_implies_at(ii, guard, inv)
+	# 	self.final_states.append(guard)
+	#
+	# 	# verify arch states after transaction
+	# 	arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.spec.state.items()}
+	# 	for mapping in self.mappings:
+	# 		arch = substitute(mapping.arch, arch_next)
+	# 		self.assert_implies_at(ii, guard, Equals(arch, mapping.impl))
+	#
+	# # we have to explore at least one final state
+	# assert len(self.final_states) > 0, f"found not final states!"
+	# at_least_one = disjunction(*self.final_states)
+	# self.check.assert_at(self.graph.max_k-1, at_least_one)
+
+	# declare all semantics
+	# TODO: generalize
+
+	# declare architectural state input
+	prefix = ""
+	declare_constants(check, make_symbols(spec.state, prefix))
+	for tran in spec.transactions:
+		declare_constants(check, make_symbols(tran.args, prefix=f"{tran.name}."))
+		# calculate semantics of this transaction
+		apply_semantics(tran, check, spec.state, prefix=f"{tran.name}.")
+
+	return VeriGraphToCheck().convert(graph, check)
 
 class VeriGraphToCheck:
-	offset: int = 0
-	check: BoundedCheck = None
-	spec: Spec = None
-	graph: VeriSpec = None
-	invariances: List[SmtExpr] = field(default_factory=list)
-	mappings: List[StateMapping] = field(default_factory=list)
-	final_states: List[Symbol] = field(default_factory=list)
-
-
-	def convert(self, spec: Spec, graph: VeriSpec, check: BoundedCheck, invariances: List[SmtExpr], mappings: List[StateMapping]):
+	def __init__(self, inverted: bool, graph: VeriSpec, check: BoundedCheck):
 		assert graph.checked, f"Graph not checked! {graph}"
 		self.offset = 0
-		self.spec = spec
 		self.check = check
 		self.graph = graph
-		self.invariances = invariances
-		self.mappings = mappings
+		self.inverted = inverted
 		self.final_states = []
 
-		# declare all semantics
-		# TODO: generalize
+	def convert(self) -> List[SmtExpr]:
+		self.visit_state(self.graph.start, TRUE(), self.offset)
+		return self.final_states
 
-		# declare architectural state input
-		prefix = ""
-		declare_constants(check, make_symbols(self.spec.state, prefix))
-		for tran in spec.transactions:
-			declare_constants(check, make_symbols(tran.args, prefix=f"{tran.name}."))
-			# calculate semantics of this transaction
-			apply_semantics(tran, check, self.spec.state, prefix=f"{tran.name}.")
-
-		# explore graph
-		self.visit_state(graph.start, TRUE(), self.offset)
-
-		# we have to explore at least one final state
-		assert len(self.final_states) > 0, f"found not final states!"
-		at_least_one = disjunction(*self.final_states)
-		self.check.assert_at(self.graph.max_k-1, at_least_one)
+	def _implies(self, assume_dont_assert: bool, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
+		if antecedent == FALSE() or consequent == TRUE(): return
+		impl = consequent if antecedent == TRUE() else Implies(antecedent, consequent)
+		assume_dont_assert = assume_dont_assert if not self.inverted else not assume_dont_assert
+		if assume_dont_assert: self.check.assume_at(ii, impl)
+		else:                  self.check.assert_at(ii, impl)
 
 	def assume_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
-		if antecedent == FALSE() or consequent == TRUE(): return
-		impl = consequent if antecedent == TRUE() else Implies(antecedent, consequent)
-		self.check.assume_at(ii, impl)
+		self._implies(assume_dont_assert=True, ii=ii, antecedent=antecedent, consequent=consequent)
 	def assert_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
-		if antecedent == FALSE() or consequent == TRUE(): return
-		impl = consequent if antecedent == TRUE() else Implies(antecedent, consequent)
-		self.check.assert_at(ii, impl)
-
-	def visit_initial_state(self, ii: int):
-		# in the first state, we assume the invariances
-		for inv in self.invariances:
-			self.check.assume_at(ii, inv)
-
-		# connect initial circuit and arch state
-		for mapping in self.mappings:
-			# TODO: this does not really work for offset != 0
-			self.check.assume_at(ii, Equals(mapping.arch, mapping.impl))
-
-	def visit_final_state(self, guard: SmtExpr, ii: int):
-		# in any final state, the invariances need to hold!
-		for inv in self.invariances:
-			self.assert_implies_at(ii, guard, inv)
-		self.final_states.append(guard)
-
-		# verify arch states after transaction
-		arch_next = {Symbol(name, tpe): Symbol(name + "_n", tpe) for name, tpe in self.spec.state.items()}
-		for mapping in self.mappings:
-			arch = substitute(mapping.arch, arch_next)
-			self.assert_implies_at(ii, guard, Equals(arch, mapping.impl))
+		self._implies(assume_dont_assert=False, ii=ii, antecedent=antecedent, consequent=consequent)
 
 	def visit_state(self, state: VeriState, guard: SmtExpr, ii: int):
 		if ii >= self.check.cycles:
 			return # incomplete
 
-		if ii == self.offset:
-			self.visit_initial_state(ii)
-
 		if len(state.edges) == 0:
-			return self.visit_final_state(guard, ii)
+			self.final_states.append(guard)
+			return
 
 		##### constraints
 		# input constraints
