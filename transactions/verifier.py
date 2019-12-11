@@ -196,9 +196,9 @@ class VeriGraphToCheck:
 		# input constraints
 		I = [conjunction(*edge.constraints.input) for edge in state.edges]
 		# argument mappings
-		A = [conjunction(*edge.constraints.arg) for edge in state.edges]
+		A = [substitute(conjunction(*edge.constraints.arg), self.arg_sub) for edge in state.edges]
 		# output constraints
-		O = [substitute(conjunction(*edge.constraints.output), self.arg_sub) for edge in state.edges]
+		O = [conjunction(*edge.constraints.output) for edge in state.edges]
 		# return argument mappings
 		R = [substitute(conjunction(*edge.constraints.ret_arg), self.arg_sub) for edge in state.edges]
 
