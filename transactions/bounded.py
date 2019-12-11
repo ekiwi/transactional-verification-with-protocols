@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from dataclasses import dataclass, replace, field
+from dataclasses import dataclass, field
 from typing import Set, Dict, List, Optional
+from pysmt.shortcuts import Symbol
+from .spec import SmtExpr
 
 @dataclass
 class CheckStep:
@@ -88,6 +90,13 @@ class BoundedCheck:
 		self._sym_names.add(name)
 		self.data.functions.append((symbol, expr))
 
+	def state(self, symbol, next_expr: SmtExpr, init_expr: Optional[SmtExpr] = None):
+		assert self._active
+		name = symbol.symbol_name()
+		assert name not in self._sym_names, f"symbol {symbol} already exists!"
+		self._sym_names.add(name)
+		self.data.states.append(State(symbol, next_expr, init_expr))
+
 	def initialize_state(self):
 		assert self._active
 		self.data.initialize = True
@@ -122,6 +131,12 @@ class BoundedCheck:
 		return not res.is_fail
 
 @dataclass
+class State:
+	sym: Symbol
+	next: SmtExpr
+	init: Optional[SmtExpr]
+
+@dataclass
 class BoundedCheckData:
 	name: str
 	cycles: int
@@ -130,6 +145,7 @@ class BoundedCheckData:
 	constants : list = field(default_factory=list)
 	functions : list = field(default_factory=list)
 	assumptions : list = field(default_factory=list)
+	states : List[State] = field(default_factory=list)
 
 from vcd import VCDWriter
 
