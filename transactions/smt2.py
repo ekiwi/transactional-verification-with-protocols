@@ -4,17 +4,15 @@
 # SMT2 Lib based backend for BoundedCheck
 import functools
 import subprocess, tempfile, os, re
-from cache_to_disk import cache_to_disk
 from pysmt.shortcuts import Symbol, FunctionType, BOOL, Function, Ite, get_free_variables, Not, Type, substitute
-import pysmt.simplifier
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 from itertools import chain
 import time
 from .utils import *
 from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model, AssumptionFailure
 from .module import Module
-from typing import Tuple, List
-
+from typing import Tuple, List, Optional
+import pysmt.simplifier
 
 class SMT2ProofEngine:
 	def __init__(self, outdir=None, simplify:bool=False):
@@ -53,9 +51,6 @@ class SMT2ProofEngine:
 			solver.fun(sym)
 			solver.comment(f"Function: {sym} = {expr}")
 			solver.add(equal(sym, expr))
-
-		# TODO: state
-		assert len(check.states) == 0
 
 		# assert initialization functions in first state if requested
 		if check.initialize:
@@ -195,7 +190,7 @@ class Solver:
 			self.simplify = lambda f: f
 		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
 		self.assertions = []
-		self.funs = []
+		self.funs: List[Tuple[Symbol, Optional[SmtExpr]]] = []
 
 	def add(self, *assertions):
 		self.assertions += [a for a in (self.simplify(a) for a in  assertions) if a != TRUE()]
@@ -204,10 +199,10 @@ class Solver:
 		self.assertions.append(str(s))
 
 	def get_funs(self) -> List[Symbol]:
-		return self.funs
+		return [sym for sym, _ in self.funs]
 
-	def fun(self, function):
-		self.funs.append(function)
+	def fun(self, function: Symbol, expr: Optional[SmtSort] = None):
+		self.funs.append((function, expr))
 
 	def check_sat(self, filename, assertions, funs=None, get_cmds=None):
 		stdout, delta = _check_sat(solver=self.bin, header=self.header, filename=filename, funs=funs, assertions=assertions, get_cmds=get_cmds)
@@ -308,7 +303,7 @@ class Solver:
 		return values
 
 
-def _write_scrip(header, filename, funs, assertions, cmds: list):
+def _write_scrip(header, filename, funs: List[Tuple[Symbol, Optional[SmtExpr]]], assertions, cmds: list):
 	with open(filename, 'w') as ff:
 		print("(set-logic QF_AUFBV)", file=ff)
 		print("; smt script generated using yosys + a custom python script", file=ff)
@@ -316,8 +311,11 @@ def _write_scrip(header, filename, funs, assertions, cmds: list):
 		print("; yosys generated:", file=ff)
 		print(header, file=ff)
 		print("; custom cmds", file=ff)
-		for f in funs:
-			SmtLibCommand(smtcmd.DECLARE_FUN, [f]).serialize(outstream=ff, daggify=False)
+		for symbol, expr in funs:
+			if expr is None:
+				SmtLibCommand(smtcmd.DECLARE_FUN, [symbol]).serialize(outstream=ff, daggify=False)
+			else:
+				SmtLibCommand(smtcmd.DEFINE_FUN, [symbol, expr]).serialize(outstream=ff, daggify=False)
 			print("", file=ff)
 		for a in assertions:
 			if isinstance(a, str):
@@ -348,14 +346,14 @@ _solve = Solver(header='')
 def is_valid(e) -> bool:
 	f = tempfile.NamedTemporaryFile()
 	funs = list(get_free_variables(e))
-	out, delta = _solve.check_sat(filename=f.name, assertions=[Not(e)], funs=funs)
+	out, delta = _solve.check_sat(filename=f.name, assertions=[Not(e)], funs=[(f,None) for f in funs])
 	return out == 'unsat'
 
 def is_unsat(e) -> bool:
 	f = tempfile.NamedTemporaryFile()
 	asserts = e if isinstance(e, list) else [e]
 	funs = list(functools.reduce(lambda a,b: a|b,  (get_free_variables(a) for a in asserts)))
-	out, delta = _solve.check_sat(filename=f.name, assertions=asserts, funs=funs)
+	out, delta = _solve.check_sat(filename=f.name, assertions=asserts, funs=[(f,None) for f in funs])
 	return out == 'unsat'
 
 class Simplifier(pysmt.simplifier.Simplifier):
