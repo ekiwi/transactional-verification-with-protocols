@@ -273,7 +273,7 @@ def expose_module(modules: dict, top: str, instance_name: str):
 	def add_port(p_mod, p_name: str, p_dir: str, p_bits: int):
 		# p_dir is from the view of the module being exposed
 		assert p_dir in {'input', 'output'}
-		mangled_name = ExposePrefix + (p_mod['name'] + '_' + p_name).replace('\\', '')
+		mangled_name = ExposePrefix + (instance_name + '_' + p_name).replace('\\', '')
 		assert mangled_name not in port_names
 		port_names.add(mangled_name)
 		p_mod[p_dir + 's'][p_name] = (('bv', p_bits), -1, mangled_name)
