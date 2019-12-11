@@ -21,7 +21,7 @@ p.step()
 p['start'] = 0
 p['inp'] = DontCare
 
-p['done'].wait(1, max=4)
+p['done'].wait(1, max=3)
 # while p['done'] != 1:
 #   p.step()
 #
