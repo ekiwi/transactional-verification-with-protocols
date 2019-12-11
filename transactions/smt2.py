@@ -112,6 +112,9 @@ class SMT2ProofEngine:
 				assert_to_cycle.append(ii)
 				assert_to_expr.append(aa)
 
+		# remember functions (or symbolic constants)
+		funs = check.constants + [sym for sym,_ in check.functions]
+
 		# run solver
 		if self.outdir is not None:	filename = os.path.join(self.outdir, f"{check.name}.smt2")
 		else:                                  filename = None
@@ -126,17 +129,17 @@ class SMT2ProofEngine:
 				return AssumptionFailure(sum(solver_times), total_time)
 			cycle = assert_to_cycle[assert_ii]
 			assert_expr = assert_to_expr[assert_ii]
-			model = self._generate_model(mod.name, assertion_symbols, assert_ii, cycle, filename, mappings, solver)
+			model = self._generate_model(mod.name, assertion_symbols, assert_ii, cycle, filename, mappings, funs, solver)
 			return CheckFailure(sum(solver_times), total_time, cycle, assert_ii, assert_expr, model, solver_times[0])
 
-	def _generate_model(self, mod_name, assertion_symbols, assert_ii, cycle, filename, mappings, solver) -> Model:
+	def _generate_model(self, mod_name, assertion_symbols, assert_ii, cycle, filename, mappings, funs, solver) -> Model:
 		ff = os.path.splitext(filename)[0] + f"_b{assert_ii}_model.smt2"
 
 		# only include one failing check
 		vc = assertion_symbols[:assert_ii + 1]
 
 		# add symbols for all signals we want to read
-		reads = []
+		reads = list(funs)
 		for ii in range(cycle + 1):
 			solver.comment(f"----------------------------")
 			solver.comment(f"- Cycle {ii} Signal Reads")
@@ -168,7 +171,9 @@ class SMT2ProofEngine:
 				name = f"{sym.symbol_name()}_cyc{ii}_read"
 				data[ii][indices[sym.symbol_name()]] = values[name]
 
-		model = Model(name=mod_name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=delta)
+		constants = {name: values[name] for name in (sym.symbol_name() for sym in funs)}
+
+		model = Model(name=mod_name, cycles=cycle+1, indices=indices, signals=signals, data=data, constants=constants, creation_time=delta)
 
 		return model
 
@@ -194,6 +199,9 @@ class Solver:
 
 	def comment(self, s: str):
 		self.assertions.append(str(s))
+
+	def get_funs(self) -> List[Symbol]:
+		return self.funs
 
 	def fun(self, function):
 		self.funs.append(function)
@@ -278,7 +286,7 @@ class Solver:
 	def _parse_model(self, lines):
 		suffix = r'\)\)'
 		bv_bool = '(#b[01]+|false|true)'
-		re_read = re.compile(f'\(\(([a-zA-Z_0-9\.]+)\s+' + bv_bool + suffix)
+		re_read = re.compile(f'\(\(([a-zA-Z_0-9@\.]+)\s+' + bv_bool + suffix)
 
 		def parse_value(vv):
 			if vv == 'true': return 1
