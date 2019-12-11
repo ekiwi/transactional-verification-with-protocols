@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import itertools
+
 from pysmt.shortcuts import *
 from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
@@ -120,7 +122,11 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 	if prefix == "":
 		mapping = {}
 	else:
-		mapping = {}
+		mapping = {Symbol(f"{mod.name}.{name}", tpe): Symbol(f"{prefix}{mod.name}.{name}", tpe) for name, tpe in spec.state.items()}
+		for tran in spec.transactions:
+			a_map = {Symbol(f"{mod.name}.{tran.name}.{name}", tpe): Symbol(f"{prefix}{mod.name}.{tran.name}.{name}", tpe)
+					 for name, tpe in itertools.chain(tran.args.items(), tran.ret_args.items())}
+			mapping = {**mapping, **a_map}
 
 	# declare architectural state
 	state_syms = make_symbols(spec.state, module_prefix)
@@ -131,9 +137,6 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 		tran_prefix = f"{module_prefix}{tran.name}."
 		arg_syms = make_symbols(tran.args, prefix=tran_prefix)
 		declare_constants(check, arg_syms)
-
-		# TODO: correct mapping
-		#mapping = map_symbols(merge_indices(arg_syms, state_syms))
 
 		# calculate semantics of this transaction
 		for ret_name, ret_tpe in tran.ret_args.items():
@@ -149,7 +152,7 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 
 
 	# encode graph
-	final_states = VeriGraphToCheck(is_toplevel, offset, module_prefix, graph, check, get_inactive_reset(mod)).convert()
+	final_states = VeriGraphToCheck(is_toplevel, offset, module_prefix, graph, check, get_inactive_reset(mod), mapping).convert()
 	return final_states
 
 @dataclass
