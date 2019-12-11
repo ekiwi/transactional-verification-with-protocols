@@ -139,7 +139,7 @@ def get_size(typ):
 	else: raise RuntimeError(f"unsupported type {typ}")
 
 class Model:
-	def __init__(self, name: str, cycles: int, signals: list, indices: Dict[str, int], data: List[List[Optional[int]]], creation_time: float = 0.0):
+	def __init__(self, name: str, cycles: int, signals: list, indices: Dict[str, int], data: List[List[Optional[int]]], constants: Dict[str, int], creation_time: float = 0.0):
 		assert len(data) > 0, "empty data"
 		assert len(data) == cycles
 		self.name = name
@@ -148,6 +148,7 @@ class Model:
 		self.indices = indices
 		self.data = data
 		self.creation_time = creation_time
+		self.constants = constants
 
 	def run_in_verilator(self, mod, filename):
 		from .verilator import simulate
