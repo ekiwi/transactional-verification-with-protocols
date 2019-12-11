@@ -18,17 +18,6 @@ def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, SmtSort], msg: str, tp
 	if tpe is not None:
 		assert e.get_type() == tpe, f"Expression {e} is of type {e.get_type()} but needs to be {tpe}"
 
-def symbol_list_to_index(symbols: List[Symbol], prefix: str = "", no_arrays = False) -> Dict[str, Any]:
-	index = {}
-	for sym in symbols:
-		name = prefix + sym.name
-		tpe = sym.get_type()
-		if no_arrays:
-			assert tpe.is_bv_type() or tpe.is_bool_type(), f"Symbol {name} needs to a BitVector or Bool, not {tpe}!"
-		assert name not in index, f"Symbol {index[name]} already defined, cannot redefine!"
-		index[name] = tpe
-	return index
-
 def merge_indices(in0: dict, in1: dict) -> dict:
 	common_keys = in0.keys() & in1.keys()
 	assert len(common_keys) == 0, f"Common keys: {common_keys}"

@@ -3,6 +3,14 @@
 
 from functools import reduce
 from pysmt.shortcuts import Equals, BV, Iff, And, Or, BVConcat, TRUE
+import pysmt.fnode, pysmt.typing
+
+""" an SmtExpr is represented by a pysmt node """
+SmtExpr = pysmt.fnode.FNode
+
+""" a SmtSort is represented by a pysmt sort type """
+SmtSort = pysmt.typing.PySMTType
+
 
 def default(expr, default):
 	return expr if expr is not None else default
