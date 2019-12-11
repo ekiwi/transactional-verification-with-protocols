@@ -54,6 +54,9 @@ class SMT2ProofEngine:
 			solver.comment(f"Function: {sym} = {expr}")
 			solver.add(equal(sym, expr))
 
+		# TODO: state
+		assert len(check.states) == 0
+
 		# assert initialization functions in first state if requested
 		if check.initialize:
 			init_fun = Symbol(mod.name + "_i", FunctionType(BOOL, [state_t]))

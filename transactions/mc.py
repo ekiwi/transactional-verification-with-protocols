@@ -47,6 +47,9 @@ class MCProofEngine:
 			solver.state(sym, next=sym, init=expr)
 			solver.watch(f"__watch_{sym.symbol_name()}", expr)
 
+		# TODO: state
+		assert len(check.states) == 0
+
 		# add invariant assumptions
 		for aa in check.assumptions:
 			solver.add_assume(aa)
