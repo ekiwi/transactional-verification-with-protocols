@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from dataclasses import dataclass, field, replace
-from typing import Optional, Callable, List, Tuple, Dict, Any, Union
-import pysmt.fnode, pysmt.typing
-
-""" an SmtExpr is represented by a pysmt node """
-SmtExpr = pysmt.fnode.FNode
-
-""" a SmtSort is represented by a pysmt sort type """
-SmtSort = pysmt.typing.PySMTType
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Union
+from .utils import SmtExpr, SmtSort
 
 @dataclass
 class Protocol:

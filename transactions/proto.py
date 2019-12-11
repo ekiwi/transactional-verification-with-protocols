@@ -5,9 +5,9 @@ from __future__ import annotations
 import itertools
 
 from .spec import *
+from dataclasses import dataclass, replace
 from .smt2 import is_unsat
 from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL, Not, Iff
-from collections import defaultdict
 from .utils import conjunction
 from typing import Set, Union, Iterator
 import copy
