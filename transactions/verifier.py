@@ -13,7 +13,7 @@ from .spec import *
 from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
 from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, merge_constraint_graphs, \
-	VeriEdge
+	VeriEdge, add_idle_edge
 
 
 def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
@@ -266,6 +266,9 @@ class VeriGraphToCheck:
 
 
 def encode_submodule(instance: str, graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule):
+	idle_tran = Transaction("IDLE")
+	idle_edge = to_verification_graph(spec.idle, tran=idle_tran, mod=mod).start.edges[0]
+	graph = add_idle_edge(graph, idle_edge)
 	VeriGraphToModel(instance, mod.name, graph, check, get_inactive_reset(mod), spec.transactions).convert()
 
 
