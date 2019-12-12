@@ -188,7 +188,7 @@ class VeriGraphChecker:
 		self._constraints = ConstraintCache(graph.inputs, graph.outputs)
 		path_constraints: List[SmtExpr] = []
 		self.visit_state(graph.start, path_constraints)
-		return self._edge_relations, self._max_k+1, self._edge_names
+		return self._edge_relations, self._max_k, self._edge_names
 
 	def visit_state(self, state: VeriState, path_constraints: List[SmtExpr]):
 		for edge in state.edges:
