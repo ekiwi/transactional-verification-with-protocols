@@ -184,12 +184,12 @@ class VeriGraphToCheck:
 		self.check.assert_at(ii, Implies(antecedent, consequent))
 
 	def visit_state(self, state: VeriState, guard: SmtExpr, ii: int):
-		if ii >= self.check.cycles:
-			return # incomplete
-
 		if len(state.edges) == 0:
 			self.final_states.append(FinalState(guard=guard, ii=ii))
 			return
+
+		if ii >= self.check.cycles:
+			return # incomplete
 
 		##### constraints
 		# input constraints
@@ -269,6 +269,7 @@ def encode_submodule(instance: str, graph: VeriSpec, check: BoundedCheck, spec: 
 	idle_tran = Transaction("IDLE")
 	idle_edge = to_verification_graph(spec.idle, tran=idle_tran, mod=mod).start.edges[0]
 	graph = add_idle_edge(graph, idle_edge)
+	# TODO: recheck the graph after adding idle edge since the add_idle_edge implementation is probbably buggy
 	VeriGraphToModel(instance, mod.name, graph, check, get_inactive_reset(mod), spec.transactions).convert()
 
 
