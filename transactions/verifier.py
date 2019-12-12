@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import collections
 import itertools
 
 from pysmt.shortcuts import *
@@ -11,7 +12,9 @@ from .utils import *
 from .spec import *
 from .spec_check import check_verification_problem, merge_indices
 from .bounded import BoundedCheck
-from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, merge_constraint_graphs
+from .proto import VeriSpec, to_verification_graph, check_verification_graph, VeriState, merge_constraint_graphs, \
+	VeriEdge
+
 
 def get_inactive_reset(module: RtlModule) -> Optional[SmtExpr]:
 	if module.reset is None: return None
@@ -62,7 +65,7 @@ class Verifier:
 		subgraphs = {nn: to_veri_spec(self.mod.submodules[nn], spec) for nn, spec in self.prob.submodules.items()}
 		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=topgraph.max_k) as check:
 			# test state encoding
-			check.state(Symbol("test_state"), Symbol("test_state"), FALSE())
+			check.state(Symbol("test_state", BVType()), Symbol("test_state", BVType()), BV(0,32))
 
 			encode_toplevel_module(graph=topgraph, check=check, spec=self.prob.spec, mod=self.mod,
 			                       invariances=self.prob.invariances, mappings=self.prob.mappings)
@@ -263,9 +266,7 @@ class VeriGraphToCheck:
 
 
 def encode_submodule(instance: str, graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule):
-	module_prefix = f"{instance}.{mod.name}."
-
-	VeriGraphToModel(module_prefix, graph, check, get_inactive_reset(mod)).convert()
+	VeriGraphToModel(instance, mod.name, graph, check, get_inactive_reset(mod), spec.transactions).convert()
 
 
 @dataclass
@@ -276,9 +277,10 @@ class VariableMapping:
 	mappings: List[int] = field(default_factory=list)
 
 class VeriGraphToModel:
-	def __init__(self, prefix: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr]):
+	def __init__(self, instance: str, mod_name: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr], transactions: List[Transaction]):
 		assert graph.checked, f"Graph not checked! {graph}"
-		self.prefix = prefix
+		self.instance = instance
+		self.mod_name = mod_name
 		self.check = check
 		self.graph = graph
 		self.inactive_rst = inactive_rst
@@ -287,8 +289,9 @@ class VeriGraphToModel:
 		self.states: List[str] = ["Init"]
 		self.transitions: List[Tuple[SmtExpr, int]] = []
 		self.var_maps: Dict[str, VariableMapping] = {}
-		self.state = Symbol(self.prefix + "state", BVType(16))
-		self.mappings: Dict[Tuple[str,int,int],List[Tuple[SmtExpr, SmtExpr]]] = {}
+		self.state = Symbol(f"{self.instance}.{self.mod_name}.state", BVType(16))
+		self.mappings: Dict[Tuple[str,int,int],List[Tuple[SmtExpr, SmtExpr]]] = collections.defaultdict(list)
+		self.transactions = {tt.name: tt for tt in transactions}
 
 	def convert(self) -> List[FinalState]:
 		self.visit_state(self.graph.start, Equals(self.state, BV(0, 16)))
@@ -300,8 +303,9 @@ class VeriGraphToModel:
 		self.check.state(self.state, state_next, init_expr=BV(0,16))
 
 		# implement variable mappings
-		for (name, msb, lsb, mappings) in self.mappings:
-			sym = Symbol(f"{name}_{msb}_{lsb}", BVType(msb-lsb+1))
+		for (name, msb, lsb), mappings in self.mappings.items():
+			assert len(mappings) > 0, f"{name}[{msb}:{lsb}] was never mapped!"
+			sym = Symbol(f"{self.instance}.{name}_{msb}_{lsb}", BVType(msb-lsb+1))
 			expr_next = sym
 			for guard, value in mappings: expr_next = Ite(guard, value, expr_next)
 			self.check.state(sym, expr_next)
@@ -311,26 +315,37 @@ class VeriGraphToModel:
 
 		return self.final_states
 
-	def assume_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
-		self.check.assume_at(ii, Implies(antecedent, consequent))
-	def assert_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
-		self.check.assert_at(ii, Implies(antecedent, consequent))
+	def get_var_at(self, name: str, edge: VeriEdge) -> SmtExpr:
+		assert len(self.graph.intervals[name]) > 0, f"No intervals for {name}"
+		# sort by msb (bigger first)
+		intervals = sorted(self.graph.intervals[name], key=lambda x: x[0])
+		pieces = []
+		for msb, lsb in intervals:
+			try:
+				# this will fail if the argument is not mapped at the current edge
+				mapping = next(filter(lambda a: a.name == name and a.msb == msb and a.lsb == lsb, edge.arg_mappings))
+				pieces.append(mapping.expr)
+			except:
+				pieces.append(Symbol(f"{self.instance}.{name}_{msb}_{lsb}", BVType(msb-lsb+1)))
+		assert len(pieces) == len(self.graph.intervals[name])
+		return reduce(BVConcat, pieces)
+
+	def compute_outputs(self, tran: Transaction, edge: VeriEdge) -> Dict[Symbol, SmtExpr]:
+		tran_prefix = f"{self.mod_name}.{tran.name}."
+		# TODO: include arch state state
+		subs = {Symbol(tran_prefix+name,tpe): self.get_var_at(tran_prefix+name, edge) for name, tpe in tran.args.items()}
+		return {Symbol(tran_prefix+name,tpe): substitute(tran.semantics[name],subs) for name, tpe in tran.ret_args.items()}
+
 
 	def visit_state(self, state: VeriState, guard: SmtExpr):
 		if len(state.edges) == 0:
-			# TODO
-			self.final_states.append(FinalState(guard=guard, ii=ii))
 			return
 
 		##### constraints
 		# input constraints
 		I = [conjunction(*edge.constraints.input) for edge in state.edges]
-		# argument mappings
-		A = [conjunction(*edge.constraints.arg) for edge in state.edges]
 		# output constraints
 		O = [conjunction(*edge.constraints.output) for edge in state.edges]
-		# return argument mappings
-		R = [conjunction(*edge.constraints.ret_arg) for edge in state.edges]
 
 		###########################################################################################
 		# naive encoding (assuming all edges could have common inputs, but I/O is always exclusive)
@@ -366,13 +381,16 @@ class VeriGraphToModel:
 			self.transitions.append((next_cond, next_state))
 
 			# argument mapping
-			# the argument mapping is essentially just an assignment, giving a name to a prior input, thus it always needs an "assume"
-			#self.assume_implies_at(ii, edge_sym, A[ei])
+			for m in edge.arg_mappings:
+				self.mappings[(m.name, m.msb, m.lsb)].append((next_cond, m.expr))
 
 			# assume that the output will follow the transaction semantics
-			#self.assume_implies_at(ii, edge_sym, R[ei])
+			if len(edge.constraints.ret_arg) > 0:
+				assert len(state.transactions) == 1, f"{state.transactions}"
+				tran_name = list(state.transactions)[0]
+				outputs = self.compute_outputs(tran=self.transactions[tran_name], edge=edge)
+				R = substitute(conjunction(*edge.constraints.ret_arg), outputs)
+				self.check.assume_always(Implies(next_cond, R))
 
-		# visit next states
-		for edge in state.edges:
-			pass
-			#self.visit_state(edge.next, self.edge_symbols[id(edge)], ii+1)
+			# visit next states
+			self.visit_state(edge.next, Equals(self.state, BV(next_state, 16)))
