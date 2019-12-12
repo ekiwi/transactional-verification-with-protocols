@@ -32,7 +32,7 @@ class SMT2ProofEngine:
 		transition_fun = Symbol(mod_name + "_t", FunctionType(BOOL, [state_t, state_t]))
 
 		# early exit in case there are no custom states
-		if len(check.states) == 0: return transition_fun, state_t
+		if len(check.states) == 0: return transition_fun, lambda s: {}
 
 		# create functions to represent custom state
 		custom_state_funs = [Symbol(state.name + "_fun", FunctionType(state.tpe, [state_t])) for state in check.states]
