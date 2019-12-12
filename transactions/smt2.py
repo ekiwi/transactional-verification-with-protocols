@@ -147,7 +147,7 @@ class SMT2ProofEngine:
 			for aa in step.assumptions:
 				solver.add(in_cycle(ii, aa))
 			solver.comment("Assertions")
-			for aa in step.assertions:
+			for aa in check.asserts + step.assertions:
 				asym = Symbol(f"b{len(assertion_symbols)}")
 				solver.fun(asym)
 				solver.add(in_cycle(ii, equal(asym, aa)))

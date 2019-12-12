@@ -50,6 +50,9 @@ class MCProofEngine:
 		# TODO: state
 		assert len(check.states) == 0
 
+		# TODO: global asserts
+		assert len(check.asserts) == 0
+
 		# add invariant assumptions
 		for aa in check.assumptions:
 			solver.add_assume(aa)
