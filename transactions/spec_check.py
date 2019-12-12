@@ -66,6 +66,15 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 					   msg="Should only refer to implementation state or architectural state of abstracted submodules.")
 
 
+	# check "idle" pseudo transaction
+	if prob.spec.idle is None:
+		prob.spec.idle = LegacyProtocol()
+	if isinstance(prob.spec.idle, LegacyProtocol):
+		prob.spec.idle = legacy_converter(prob.spec.idle)
+	assert isinstance(prob.spec.idle, Protocol)
+	assert len(prob.spec.idle.start.edges) == 1
+	assert len(prob.spec.idle.start.edges[0].next.edges) == 0
+
 	# check transactions
 	tran_index = {}
 	for tran in prob.spec.transactions:

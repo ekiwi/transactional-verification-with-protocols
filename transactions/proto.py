@@ -8,8 +8,8 @@ import itertools
 from .spec import *
 from dataclasses import dataclass, replace
 from .smt2 import is_unsat
-from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL, Not, Iff
-from .utils import conjunction
+from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL, Not, Iff, Implies
+from .utils import conjunction, disjunction
 from typing import Set, Union, Iterator, Tuple
 import copy
 from enum import Enum
@@ -47,6 +47,48 @@ class ConstraintCache:
 				ret_arg=self._substitute(edge.constraints.ret_arg, sub_o)
 			)
 		return self._constraint_cache[id(edge)]
+
+###################### IDLE Edge Addition
+def add_idle_edge(g0: VeriSpec, idle: VeriEdge) -> VeriSpec:
+	return VeriGraphIdleAdder().add_idle(g0, idle)
+
+
+@dataclass
+class VeriGraphIdleAdder:
+	_constraints : ConstraintCache = None
+	idle: VeriEdge = None
+
+	def add_idle(self, g0: VeriSpec, idle: VeriEdge) -> VeriSpec:
+		assert len(idle.constraints.ret_arg) == 0
+		assert len(idle.constraints.arg) == 0
+		assert idle.ii == 0
+		self._constraints = ConstraintCache(g0.inputs, g0.outputs)
+		self.idle = idle
+		self.visit_state(g0.start)
+		return g0
+
+
+	def visit_state(self, s0: VeriState):
+		if len(s0.edges) == 0: return
+		idle = replace(self.idle, ii=s0.edges[0].ii)
+
+		# see which edges could alias with an idle transaction
+		idle_in  = conjunction(*self._constraints.get(idle).input)
+		idle_out = conjunction(*self._constraints.get(idle).output)
+		for edge in  s0.edges:
+			edge_in  = conjunction(*self._constraints.get(edge).input)
+			edge_out = conjunction(*self._constraints.get(edge).output)
+			edge_implies_idle = Implies(And(edge_in, edge_out), And(idle_in, idle_out))
+			if is_unsat(Not(edge_implies_idle)):
+				self.visit_state(edge.next)
+
+		# add an edge to the current state
+		not_others = Not(disjunction(*(conjunction(*e.constraints.input) for e in s0.edges)))
+		new_idle_const = And(conjunction(*self.idle.constraints.input), not_others)
+		idle = replace(idle,
+					   constraints=EdgeConstraints(input=[new_idle_const],output=self.idle.constraints.output, arg=[], ret_arg=[]),
+					   next=VeriState(edges=[], transactions={}))
+		s0.edges.append(idle)
 
 
 ###################### Constraint Graph Merging
