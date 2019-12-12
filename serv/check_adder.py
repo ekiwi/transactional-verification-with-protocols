@@ -7,19 +7,20 @@ from transactions import *
 
 class AdderSpec(Spec):
 	def __init__(self, bits):
-		args = {'spec_a': BVType(bits), 'spec_b': BVType(bits)}
-		ret_args = {'spec_c': BVType(bits), 'spec_carry': BVType(1)}
+		args = {'a': BVType(bits), 'b': BVType(bits)}
+		ret_args = {'c': BVType(bits), 'carry': BVType(1)}
+		a,     b = [Symbol(f"ser_add.add{bits}.{name}", tpe) for name,tpe in args.items()]
+		c, carry = [Symbol(f"ser_add.add{bits}.{name}", tpe) for name, tpe in ret_args.items()]
+
 
 		tt  = [Transition(inputs={'clr': BV(1,1)})]
 		tt += [Transition(inputs={'clr': BV(0,1),
-								  'a': BVExtract(Symbol('spec_a', BVType(bits)), ii, ii),
-								  'b': BVExtract(Symbol('spec_b', BVType(bits)), ii, ii),},
-						  outputs={'q': BVExtract(Symbol('spec_c', BVType(bits)), ii, ii)})
+								  'a': BVExtract(a, ii, ii),
+								  'b': BVExtract(b, ii, ii),},
+						  outputs={'q': BVExtract(c, ii, ii)})
 			   for ii in range(bits)]
-		tt[-1].outputs['o_v'] = Symbol('spec_carry', BVType(1))
-		a = Symbol('spec_a', BVType(bits))
-		b = Symbol('spec_b', BVType(bits))
-		semantics = {'spec_c': BVAdd(a, b), 'spec_carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
+		tt[-1].outputs['o_v'] = carry
+		semantics = {'c': BVAdd(a, b), 'carry': BVExtract(BVAdd(BVZExt(a, 1), BVZExt(b, 1)), bits, bits)}
 		transactions = [Transaction(name=f"add{bits}", args=args, ret_args=ret_args, semantics=semantics, proto=LegacyProtocol(tt))]
 		super().__init__(transactions=transactions, idle=None)
 

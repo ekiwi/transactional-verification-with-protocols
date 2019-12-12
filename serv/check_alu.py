@@ -14,11 +14,7 @@ BOOL_OP_XOR = BV(0, 2)
 BOOL_OP_OR  = BV(2, 2)
 BOOL_OP_AND = BV(3, 2)
 
-a   = Symbol('a', BVType(32))
-b   = Symbol('b', BVType(32))
-res = Symbol('res', BVType(32))
-
-def protocol(ctrl_inputs=None):
+def protocol(a, b, res, ctrl_inputs=None):
 	ctrl_inputs = {} if ctrl_inputs is None else ctrl_inputs
 	return LegacyProtocol(
 		[Transition(inputs={'i_en': BV(0,1)})] +
@@ -29,8 +25,11 @@ def protocol(ctrl_inputs=None):
 	)
 
 def make_op(name, BVOperation, ctrl) -> Transaction:
-	return Transaction(name=name, proto=protocol(ctrl), semantics={'res': BVOperation(a,b)},
-					   args={'a': BVType(32), 'b': BVType(32)}, ret_args={'res': BVType(32)})
+	args = {'a': BVType(32), 'b': BVType(32)}
+	ret_args = {'res': BVType(32)}
+	a,b = [Symbol(f"serv_alu.{name}.{n}", tpe) for n,tpe in args.items()]
+	res, = [Symbol(f"serv_alu.{name}.{n}", tpe) for n, tpe in ret_args.items()]
+	return Transaction(name=name, proto=protocol(a, b, res, ctrl), semantics={'res': BVOperation(a,b)}, args=args, ret_args=ret_args)
 
 alu_spec = Spec(transactions=[
 	make_op("Add", BVAdd, {'i_sub': BV(0,1), 'i_rd_sel': ALU_RESULT_ADD}),
