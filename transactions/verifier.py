@@ -312,6 +312,7 @@ class VeriGraphToModel:
 			sym_valid = Symbol(sym.symbol_name() + "_valid", BOOL)
 			expr_next_valid = disjunction(sym_valid, *(g for g,_ in mappings))
 			self.check.state(sym_valid, expr_next_valid, init_expr=FALSE())
+			# TODO: invalidate when transitioning back to initial state
 
 		return self.final_states
 
