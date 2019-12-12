@@ -117,28 +117,24 @@ class SMT2ProofEngine:
 		# TODO: compute mappings lazily as not all of them will be used
 		mappings = [{**{ sym: map_sym(sym, state) for sym in signal_symbols }, **get_state_mapping(state)}
 					for state in states]
+		# mapping that refers to "state" symbol
+		state_symbol = Symbol("state", state_t)
+		invariant_map = {**{ sym: map_sym(sym, state_symbol) for sym in signal_symbols }, **get_state_mapping(state_symbol)}
 		def in_cycle(ii, ee):
 			return substitute(ee, mappings[ii])
 
-		# check if assumptions are cycle dependent
-		symbol_set = set(signal_symbols)
-		is_cycle_dep = lambda expr: set(get_free_variables(expr)) & symbol_set != set()
-		cycle_dependent = [aa for aa in check.assumptions if is_cycle_dep(aa)]
-		cycle_independent = [aa for aa in check.assumptions if not is_cycle_dep(aa)]
+		# custom function for "invariant" assumptions
+		assume_fun = Symbol("assumptions_hold", FunctionType(BOOL, [state_t]))
 		solver.comment("Invariant Assumptions")
-		for aa in cycle_independent:
-			solver.add(aa)
-
-		# add invariant assumptions to steps
-		assumptions = [step.assumptions + cycle_dependent for step in check.steps]
-		assertions  = [step.assertions for step in check.steps]
-
+		for state in states: solver.add(Function(assume_fun, [state]))
+		assumptions = [substitute(aa, invariant_map) for aa in check.assumptions]
+		solver.fun_def(assume_fun, [state_symbol], conjunction(*assumptions))
 
 		# check each step
 		assertion_symbols = []
 		assert_to_cycle = []
 		assert_to_expr = []
-		for ii, (assums, asserts) in enumerate(zip(assumptions, assertions)):
+		for ii, step in enumerate(check.steps):
 			solver.comment(f"-------------------")
 			solver.comment(f"- Transition {ii} -> {ii+1}")
 			solver.comment(f"-------------------")
@@ -148,10 +144,10 @@ class SMT2ProofEngine:
 					if state.init is not None:
 						solver.add(in_cycle(ii, equal(Symbol(state.name, state.tpe), state.init)))
 			solver.comment("Assumptions")
-			for aa in assums:
+			for aa in step.assumptions:
 				solver.add(in_cycle(ii, aa))
 			solver.comment("Assertions")
-			for aa in asserts:
+			for aa in step.assertions:
 				asym = Symbol(f"b{len(assertion_symbols)}")
 				solver.fun(asym)
 				solver.add(in_cycle(ii, equal(asym, aa)))
