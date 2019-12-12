@@ -261,7 +261,7 @@ class Solver:
 		assert len(args) == len(fun_tpe.param_types), f"{len(args)} != {len(fun_tpe.param_types)}, {args} vs {fun_tpe.param_types}"
 		arg_types = tuple([a.symbol_type() for a in args])
 		assert arg_types == fun_tpe.param_types, f"In {function}, types don't match: {arg_types} vs {fun_tpe.param_types}"
-		fd = FunctionDefinition(symbol=function, args=args, expr=expr)
+		fd = FunctionDefinition(symbol=function, args=args, expr=self.simplify(expr))
 		self.fun_defs.append(fd)
 
 	def check_sat(self, filename, assertions, funs: List[Symbol], fun_defs: List[FunctionDefinition], get_cmds=None):

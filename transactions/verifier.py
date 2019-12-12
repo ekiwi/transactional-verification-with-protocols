@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 
 from pysmt.shortcuts import *
+from typing import Tuple
 from .module import Module, LowActiveReset, HighActiveReset
 from .utils import *
 from .spec import *
@@ -66,7 +67,7 @@ class Verifier:
 			encode_toplevel_module(graph=topgraph, check=check, spec=self.prob.spec, mod=self.mod,
 			                       invariances=self.prob.invariances, mappings=self.prob.mappings)
 			for instance, spec in self.prob.submodules.items():
-				encode_submodule(offset=0, instance=instance, graph=subgraphs[instance], check=check, spec=spec, mod=self.mod.submodules[instance])
+				encode_submodule(instance=instance, graph=subgraphs[instance], check=check, spec=spec, mod=self.mod.submodules[instance])
 
 
 
@@ -78,12 +79,6 @@ def to_veri_spec(mod: RtlModule, spec: Spec) -> VeriSpec:
 		spec_graph = merge_constraint_graphs(spec_graph, other)
 	# verify graph to check if it satisfies assumptions
 	return check_verification_graph(spec_graph, io_prefix=mod.io_prefix)
-
-def encode_submodule(offset: int, instance: str, graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule):
-	final_states = encode_module(is_toplevel=False, offset=offset, prefix=f"{instance}.", graph=graph, check=check, spec=spec, mod=mod)
-
-	assert len(final_states) > 0, f"found no final states!"
-	# TODO: search for paths...
 
 
 def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule, invariances: List[SmtExpr], mappings: List[StateMapping]):
@@ -151,8 +146,6 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 			prev_state = state_syms[state_name]
 			next_state = tran.semantics.get(state_name, prev_state)
 			check.function(Symbol(module_prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
-
-
 
 	# encode graph
 	final_states = VeriGraphToCheck(is_toplevel, offset, module_prefix, graph, check, get_inactive_reset(mod), mapping).convert()
@@ -267,3 +260,119 @@ class VeriGraphToCheck:
 		# visit next states
 		for edge in state.edges:
 			self.visit_state(edge.next, self.edge_symbols[id(edge)], ii+1)
+
+
+def encode_submodule(instance: str, graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule):
+	module_prefix = f"{instance}.{mod.name}."
+
+	VeriGraphToModel(module_prefix, graph, check, get_inactive_reset(mod)).convert()
+
+
+@dataclass
+class VariableMapping:
+	name: str
+	msb: int
+	lsb: int
+	mappings: List[int] = field(default_factory=list)
+
+class VeriGraphToModel:
+	def __init__(self, prefix: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr]):
+		assert graph.checked, f"Graph not checked! {graph}"
+		self.prefix = prefix
+		self.check = check
+		self.graph = graph
+		self.inactive_rst = inactive_rst
+		self.final_states: List[FinalState] = []
+		self.edge_symbols = {}
+		self.states: List[str] = ["Init"]
+		self.transitions: List[Tuple[SmtExpr, int]] = []
+		self.var_maps: Dict[str, VariableMapping] = {}
+		self.state = Symbol(self.prefix + "state", BVType(16))
+		self.mappings: Dict[Tuple[str,int,int],List[Tuple[SmtExpr, SmtExpr]]] = {}
+
+	def convert(self) -> List[FinalState]:
+		self.visit_state(self.graph.start, Equals(self.state, BV(0, 16)))
+
+		# implement state transitions
+		invalid_state = BV((1<<16)-1, 16)
+		state_next = invalid_state
+		for guard, state_id in self.transitions: state_next = Ite(guard, BV(state_id, 16), state_next)
+		self.check.state(self.state, state_next, init_expr=BV(0,16))
+
+		# implement variable mappings
+		for (name, msb, lsb, mappings) in self.mappings:
+			sym = Symbol(f"{name}_{msb}_{lsb}", BVType(msb-lsb+1))
+			expr_next = sym
+			for guard, value in mappings: expr_next = Ite(guard, value, expr_next)
+			self.check.state(sym, expr_next)
+			sym_valid = Symbol(sym.symbol_name() + "_valid", BOOL)
+			expr_next_valid = disjunction(sym_valid, *(g for g,_ in mappings))
+			self.check.state(sym_valid, expr_next_valid, init_expr=FALSE())
+
+		return self.final_states
+
+	def assume_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
+		self.check.assume_at(ii, Implies(antecedent, consequent))
+	def assert_implies_at(self, ii: int, antecedent: SmtExpr, consequent: SmtExpr):
+		self.check.assert_at(ii, Implies(antecedent, consequent))
+
+	def visit_state(self, state: VeriState, guard: SmtExpr):
+		if len(state.edges) == 0:
+			# TODO
+			self.final_states.append(FinalState(guard=guard, ii=ii))
+			return
+
+		##### constraints
+		# input constraints
+		I = [conjunction(*edge.constraints.input) for edge in state.edges]
+		# argument mappings
+		A = [conjunction(*edge.constraints.arg) for edge in state.edges]
+		# output constraints
+		O = [conjunction(*edge.constraints.output) for edge in state.edges]
+		# return argument mappings
+		R = [conjunction(*edge.constraints.ret_arg) for edge in state.edges]
+
+		###########################################################################################
+		# naive encoding (assuming all edges could have common inputs, but I/O is always exclusive)
+		###########################################################################################
+
+		# make sure that the environment applies only allowed inputs
+		self.check.assert_always(Implies(guard, disjunction(*I)))
+
+		# output requirements for any combination of active edges
+		for bits in range(1 << len(state.edges)):
+			active = [(bits & (1<<ii)) != 0 for ii in range(len(state.edges))]
+
+			# TODO: check if antecedent is infeasible
+			inputs = [I[ii] if active[ii] else Not(I[ii]) for ii in range(len(state.edges))]
+			antecedent = And(guard, conjunction(*inputs))
+
+			outputs = [O[ii] for ii in range(len(state.edges)) if active[ii]]
+			consequent = disjunction(*outputs)
+
+			# TODO: State -> I... -> O.. vc. State and I... -> O...
+			self.check.assume_always(Implies(And(guard, antecedent), consequent))
+
+
+		# path computation and argument mappings
+		for ei, edge in enumerate(state.edges):
+			# next guard (is this edge taken)?
+			next_cond = And(guard, And(I[ei], O[ei]))
+			if len(edge.next.edges) == 0:
+				next_state = 0
+			else:
+				next_state = len(self.states)
+				self.states.append('') # TODO: name
+			self.transitions.append((next_cond, next_state))
+
+			# argument mapping
+			# the argument mapping is essentially just an assignment, giving a name to a prior input, thus it always needs an "assume"
+			#self.assume_implies_at(ii, edge_sym, A[ei])
+
+			# assume that the output will follow the transaction semantics
+			#self.assume_implies_at(ii, edge_sym, R[ei])
+
+		# visit next states
+		for edge in state.edges:
+			pass
+			#self.visit_state(edge.next, self.edge_symbols[id(edge)], ii+1)
