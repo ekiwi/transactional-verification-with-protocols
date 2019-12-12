@@ -71,6 +71,10 @@ class BoundedCheck:
 		assert self._active
 		self.data.assumptions.append(expr)
 
+	def assert_always(self, expr):
+		assert self._active
+		self.data.asserts.append(expr)
+
 	def assert_at(self, cycle, expr):
 		assert self._active
 		assert self.cycles >= cycle >= 0
@@ -146,6 +150,7 @@ class BoundedCheckData:
 	constants : list = field(default_factory=list)
 	functions : list = field(default_factory=list)
 	assumptions : list = field(default_factory=list)
+	asserts: list = field(default_factory=list)
 	states : List[State] = field(default_factory=list)
 
 from vcd import VCDWriter

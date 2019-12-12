@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import collections
 import itertools
 
 from .spec import *
@@ -9,7 +10,7 @@ from dataclasses import dataclass, replace
 from .smt2 import is_unsat
 from pysmt.shortcuts import Symbol, And, BV, BVType, BVExtract, Equals, substitute, BOOL, Not, Iff
 from .utils import conjunction
-from typing import Set, Union, Iterator
+from typing import Set, Union, Iterator, Tuple
 import copy
 from enum import Enum
 
@@ -65,7 +66,8 @@ class VeriGraphMerger:
 		path_constraints: List[SmtExpr] = []
 		start = self.merge_states(g0.start, g1.start, path_constraints)
 		tts = {**g0.transactions, **g1.transactions}
-		return VeriSpec(inputs=g0.inputs, outputs=g0.outputs, io_prefix=g0.io_prefix, checked=False, start=start, transactions=tts)
+		return VeriSpec(inputs=g0.inputs, outputs=g0.outputs, io_prefix=g0.io_prefix, checked=False, start=start, transactions=tts,
+						intervals={**g0.intervals, **g1.intervals}, mappings={**g0.mappings, **g1.mappings})
 
 
 	def merge_states(self, s0: VeriState, s1: VeriState, path_constraints: List[SmtExpr]) -> VeriState:
@@ -88,6 +90,7 @@ class VeriGraphMerger:
 					Iff(conjunction(*e0_constraints.input),  conjunction(*e1_constraints.input)),
 					Iff(conjunction(*e0_constraints.output), conjunction(* e1_constraints.output)))))
 				if same:
+					assert len(e0.constraints.arg) == 0 and len(e1.constraints.arg) == 0, f"TODO: implement merging for edges that have variable mappings"
 					next_state = self.merge_states(e0.next, e1.next, path_constraints + e0_constraints.input + e0_constraints.output)
 					# replace e0 with merged edge
 					new_state.edges.remove(e0)
@@ -216,6 +219,10 @@ class VeriSpec:
 	edge_relations: Dict[Tuple[int, int], EdgeRelation] =  field(default_factory=dict)
 	edge_id_to_name: Dict[int, str] = field(default_factory=dict)
 	edge_name_to_id: Dict[str, int] = field(default_factory=dict)
+	# (var_name, msb, lsb) -> List[edges]
+	mappings: Dict[Tuple[str, int, int], List[int]] = field(default_factory=dict)
+	# var_name -> List[(msb,lsb)]
+	intervals: Dict[str,List[Tuple[int, int]]] = field(default_factory=dict)
 
 
 
@@ -234,12 +241,14 @@ def range_to_bitmap(msb: int, lsb: int) -> int:
 	mask = (1 << width) - 1
 	return mask << lsb
 
-def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int]) -> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int]]:
+def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], var_map: Dict[str, int])\
+		-> Tuple[List[SmtExpr], List[SmtExpr], Dict[str, int], List[Tuple[str, int, int]]]:
 	""" works for input or output signals """
 
 	constraints: List[SmtExpr] = []
 	mappings: List[SmtExpr] = []
 	new_var_map = copy.copy(var_map)
+	new_mappings: List[Tuple[str, int, int]] = []
 
 	for signal_name, expr in signals.items():
 		assert expr.get_type().is_bv_type(), f"{expr} : {expr.get_type()}"
@@ -269,6 +278,7 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 				if current_bits & existing_bits == 0:
 					# these bits have never been mapped before => generate new mapping
 					mappings.append(Equals(sig_expr, var_expr))
+					new_mappings.append((var_name, var_msb, var_lsb))
 				elif current_bits & existing_bits == current_bits:
 					# all current bits have been mapped before => just enforce equality
 					constraints.append(Equals(sig_expr, var_expr))
@@ -283,7 +293,7 @@ def find_constraints_and_mappings(io_prefix: str, signals: Dict[str, SmtExpr], v
 				assert var_lsb == 0 and var_msb + 1 == var.get_type().width, f"Expect constants to be simplified!"
 				constraints.append(Equals(sig_expr, var))
 
-	return constraints, mappings, new_var_map
+	return constraints, mappings, new_var_map, new_mappings
 
 def check_arg_map(args: Dict[str, SmtSort], arg_map: Dict[str, int], path: str, prefix: str):
 	for name_suffix, typ in args.items():
@@ -298,22 +308,30 @@ class ProtocolToVerificationGraphConverter:
 	io_prefix: str = ""
 	arg_prefix: str = ""
 	tran: Transaction = None
-	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str, mod_name: str) -> VeriState:
+	# (var_name, msb, lsb) -> List[edges]
+	mappings: Dict[Tuple[str, int, int], List[int]] = field(default_factory=lambda: collections.defaultdict(list))
+	# var_name -> List[(msb,lsb)]
+	intervals: Dict[str,List[Tuple[int, int]]] = field(default_factory=lambda: collections.defaultdict(list))
+	def convert(self, proto: Protocol, tran: Transaction, io_prefix: str, mod_name: str) -> Tuple[VeriState, Dict[Tuple[str, int, int], List[int]], Dict[str,List[Tuple[int, int]]]]:
 		self.io_prefix = io_prefix
 		self.arg_prefix = f"{mod_name}.{tran.name}."
 		self.tran = tran
 		arg_map     = {self.arg_prefix + name: 0 for name in tran.args.keys()}
 		ret_arg_map = {self.arg_prefix + name: 0 for name in tran.ret_args.keys()}
 		start = self.visit_state([], arg_map, ret_arg_map, proto.start)
-		return start
+		return start, self.mappings, self.intervals
 
 	def visit_edge(self, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], edge: ProtocolEdge) -> VeriEdge:
 		# the current transition id is the prefix length
 		ii = len(prefix)
 
-		input_constraints,  input_mappings, new_arg_map  = find_constraints_and_mappings(self.io_prefix, edge.inputs, arg_map)
-		output_constraints, output_mappings, new_ret_arg_map = find_constraints_and_mappings(self.io_prefix, edge.outputs, ret_arg_map)
+		input_constraints,  input_mappings, new_arg_map, new_mappings  = find_constraints_and_mappings(self.io_prefix, edge.inputs, arg_map)
+		output_constraints, output_mappings, new_ret_arg_map, _ = find_constraints_and_mappings(self.io_prefix, edge.outputs, ret_arg_map)
 		constraints = EdgeConstraints(input_constraints, output_constraints, input_mappings, output_mappings)
+
+		for name, msb, lsb in new_mappings:
+			self.mappings[(name, msb, lsb)].append(id(edge))
+			self.intervals[name].append((msb,lsb))
 
 		new_edge = VeriEdge(ii, constraints)
 
@@ -338,11 +356,11 @@ class ProtocolToVerificationGraphConverter:
 
 
 def to_verification_graph(proto: Protocol, tran: Transaction, mod: RtlModule) -> VeriSpec:
-	start = ProtocolToVerificationGraphConverter().convert(proto, tran, mod.io_prefix, mod.name)
+	start, mappings, intervals = ProtocolToVerificationGraphConverter().convert(proto, tran, mod.io_prefix, mod.name)
 	tts = {tran.name: tran}
 	inputs = {mod.io_prefix+name: tpe for name, tpe in mod.inputs.items()}
 	outputs = {mod.io_prefix + name: tpe for name, tpe in mod.inputs.items()}
-	return VeriSpec(start=start, io_prefix=mod.io_prefix, inputs=inputs, outputs=outputs, transactions=tts)
+	return VeriSpec(start=start, io_prefix=mod.io_prefix, inputs=inputs, outputs=outputs, transactions=tts,mappings=mappings, intervals=intervals)
 
 
 
