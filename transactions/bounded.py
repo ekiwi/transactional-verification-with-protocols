@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Set, Dict, List, Optional
 from pysmt.shortcuts import Symbol
-from .spec import SmtExpr
+from .utils import SmtExpr, SmtSort
 
 @dataclass
 class CheckStep:
@@ -90,12 +90,12 @@ class BoundedCheck:
 		self._sym_names.add(name)
 		self.data.functions.append((symbol, expr))
 
-	def state(self, symbol, next_expr: SmtExpr, init_expr: Optional[SmtExpr] = None):
+	def state(self, symbol: Symbol, next_expr: SmtExpr, init_expr: Optional[SmtExpr] = None):
 		assert self._active
 		name = symbol.symbol_name()
 		assert name not in self._sym_names, f"symbol {symbol} already exists!"
 		self._sym_names.add(name)
-		self.data.states.append(State(symbol, next_expr, init_expr))
+		self.data.states.append(State(name, symbol.symbol_type(), next_expr, init_expr))
 
 	def initialize_state(self):
 		assert self._active
@@ -132,7 +132,8 @@ class BoundedCheck:
 
 @dataclass
 class State:
-	sym: Symbol
+	name: str
+	tpe: SmtSort
 	next: SmtExpr
 	init: Optional[SmtExpr]
 

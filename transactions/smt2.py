@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # SMT2 Lib based backend for BoundedCheck
+from __future__ import annotations
 import functools
 import subprocess, tempfile, os, re
 from pysmt.shortcuts import Symbol, FunctionType, BOOL, Function, Ite, get_free_variables, Not, Type, substitute
@@ -11,8 +12,9 @@ import time
 from .utils import *
 from .bounded import BoundedCheckData, CheckFailure, CheckSuccess, Model, AssumptionFailure
 from .module import Module
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Callable
 import pysmt.simplifier
+from dataclasses import dataclass
 
 class SMT2ProofEngine:
 	def __init__(self, outdir=None, simplify:bool=False):
@@ -24,13 +26,66 @@ class SMT2ProofEngine:
 		if self.outdir is not None:
 			assert os.path.isdir(self.outdir)
 
+	def states(self, check: BoundedCheckData, solver: Solver, mod_name: str, signal_symbols: List[Symbol], map_sym) -> Tuple[Symbol, Callable[[Symbol], dict]]:
+		# derive function names for module unrolling
+		state_t = Type(mod_name + "_s")
+		transition_fun = Symbol(mod_name + "_t", FunctionType(BOOL, [state_t, state_t]))
+
+		# early exit in case there are no custom states
+		if len(check.states) == 0: return transition_fun, state_t
+
+		# create functions to represent custom state
+		custom_state_funs = [Symbol(state.name + "_fun", FunctionType(state.tpe, [state_t])) for state in check.states]
+		for ff in custom_state_funs: solver.fun(ff)
+
+		# create mappings for all signals and state referred to inside a state_next function
+		state_symbol = Symbol("state", state_t)
+		signal_mappings = {sym: map_sym(sym, state_symbol) for sym in signal_symbols}
+		state_mappings = {Symbol(state.name, state.tpe): Function(ff, [state_symbol])
+						  for state, ff in zip(check.states, custom_state_funs)}
+		sn_map = {**signal_mappings, **state_mappings}
+
+		# create next functions
+		custom_state_next_funs = [Symbol(state.name + "_next_fun", FunctionType(state.tpe, [state_t])) for state in check.states]
+		for state, next_fun in zip(check.states, custom_state_next_funs):
+			solver.fun_def(next_fun, [state_symbol], substitute(state.next, sn_map))
+
+		# create a custom transition function
+		custom_tran_fun = Symbol("transition", FunctionType(BOOL, [state_t, state_t]))
+		next_state_sym = Symbol("next_state", state_t)
+		tran_exprs  = [Function(transition_fun, [state_symbol, next_state_sym])]
+		tran_exprs += [equal(Function(f_n, [state_symbol]), Function(f, [next_state_sym]))
+					   for f_n,f in zip(custom_state_next_funs, custom_state_funs)]
+		solver.fun_def(custom_tran_fun, [state_symbol, next_state_sym], reduce(And, tran_exprs))
+
+		def get_mapping(state: Symbol):
+			return {Symbol(st.name, st.tpe): Function(ff, [state]) for st,ff in zip(check.states, custom_state_funs)}
+
+		return custom_tran_fun, get_mapping
+
 	def check(self, check: BoundedCheckData, mod: Module, verify_assumptions=True):
 		start = time.time()
 		solver = Solver(header=mod.smt2_src, do_simplify=self.simplify)
-
-		# derive function names for module unrolling
 		state_t = Type(mod.name + "_s")
-		transition_fun = Symbol(mod.name + "_t", FunctionType(BOOL, [state_t, state_t]))
+
+		def map_sym(symbol: Symbol, state_sym):
+			tpe = symbol.symbol_type()
+			is_bool_ = tpe.is_bv_type() and tpe.width == 1
+			ft = FunctionType(BOOL if is_bool_ else tpe, [state_t])
+			if tpe.is_array_type():	fn = mod.name + "_m " + symbol.symbol_name()
+			else:                   fn = mod.name + "_n " + symbol.symbol_name()
+			if is_bool_:	return Ite(Function(Symbol(fn, ft), [state_sym]), BV(1,1), BV(0,1))
+			else:       return Function(Symbol(fn, ft), [state_sym])
+
+		# create a list of signals in the module (this includes I/O and state)
+		signal_symbols = [Symbol(name, tpe) for name, tpe in chain(mod.inputs.items(), mod.outputs.items(), mod.state.items())]
+		for submodule in mod.submodules.values():
+			signal_symbols += [Symbol(submodule.io_prefix + name, tpe) for name, tpe in
+						chain(submodule.inputs.items(), submodule.outputs.items())]
+
+		# deal with any custom states
+		transition_fun, get_state_mapping = self.states(check=check, solver=solver, mod_name=mod.name,
+														signal_symbols=signal_symbols, map_sym=map_sym)
 
 		# unroll for N cycles
 		states = [Symbol(f"s{ii}", state_t) for ii in range(check.cycles + 1)]
@@ -59,25 +114,14 @@ class SMT2ProofEngine:
 			solver.add(Function(init_fun, [states[0]]))
 
 		# map module i/o and state to cycle dependent function
-		symbols = [Symbol(name, tpe) for name, tpe in chain(mod.inputs.items(), mod.outputs.items(), mod.state.items())]
-		for submodule in mod.submodules.values():
-			symbols += [Symbol(submodule.io_prefix + name, tpe) for name, tpe in
-						chain(submodule.inputs.items(), submodule.outputs.items())]
 		# TODO: compute mappings lazily as not all of them will be used
-		def map_sym(symbol: Symbol, state):
-			tpe = symbol.symbol_type()
-			is_bool = tpe.is_bv_type() and tpe.width == 1
-			ft = FunctionType(BOOL if is_bool else tpe, [state_t])
-			if tpe.is_array_type():	fn = mod.name + "_m " + symbol.symbol_name()
-			else:                   fn = mod.name + "_n " + symbol.symbol_name()
-			if is_bool:	return Ite(Function(Symbol(fn, ft), [state]), BV(1,1), BV(0,1))
-			else:       return Function(Symbol(fn, ft), [state])
-		mappings = [{ sym: map_sym(sym, state) for sym in symbols } for state in states]
+		mappings = [{**{ sym: map_sym(sym, state) for sym in signal_symbols }, **get_state_mapping(state)}
+					for state in states]
 		def in_cycle(ii, ee):
 			return substitute(ee, mappings[ii])
 
 		# check if assumptions are cycle dependent
-		symbol_set = set(symbols)
+		symbol_set = set(signal_symbols)
 		is_cycle_dep = lambda expr: set(get_free_variables(expr)) & symbol_set != set()
 		cycle_dependent = [aa for aa in check.assumptions if is_cycle_dep(aa)]
 		cycle_independent = [aa for aa in check.assumptions if not is_cycle_dep(aa)]
@@ -96,8 +140,13 @@ class SMT2ProofEngine:
 		assert_to_expr = []
 		for ii, (assums, asserts) in enumerate(zip(assumptions, assertions)):
 			solver.comment(f"-------------------")
-			solver.comment(f"- Cycle {ii}")
+			solver.comment(f"- Transition {ii} -> {ii+1}")
 			solver.comment(f"-------------------")
+			if len(check.states) > 0 and ii == 0:
+				solver.comment("State Initialization")
+				for state in check.states:
+					if state.init is not None:
+						solver.add(in_cycle(ii, equal(Symbol(state.name, state.tpe), state.init)))
 			solver.comment("Assumptions")
 			for aa in assums:
 				solver.add(in_cycle(ii, aa))
@@ -178,6 +227,12 @@ class SMT2ProofEngine:
 sat = "sat"
 unsat = "unsat"
 
+@dataclass
+class FunctionDefinition:
+	symbol: Symbol
+	args: List[Symbol]
+	expr: SmtExpr
+
 class Solver:
 	def __init__(self, header, logic='QF_AUFBV', bin='yices-smt2', do_simplify:bool=False):
 		self.header = header
@@ -190,7 +245,9 @@ class Solver:
 			self.simplify = lambda f: f
 		subprocess.run(['which', bin], check=True, stdout=subprocess.PIPE)
 		self.assertions = []
-		self.funs: List[Tuple[Symbol, Optional[SmtExpr]]] = []
+		self.funs: List[Symbol] = []
+		self.fun_defs: List[FunctionDefinition] = []
+
 
 	def add(self, *assertions):
 		self.assertions += [a for a in (self.simplify(a) for a in  assertions) if a != TRUE()]
@@ -198,20 +255,29 @@ class Solver:
 	def comment(self, s: str):
 		self.assertions.append(str(s))
 
-	def get_funs(self) -> List[Symbol]:
-		return [sym for sym, _ in self.funs]
+	def fun(self, function: Symbol):
+		self.funs.append(function)
 
-	def fun(self, function: Symbol, expr: Optional[SmtSort] = None):
-		self.funs.append((function, expr))
+	def fun_def(self, function: Symbol, args: List[Symbol], expr: SmtExpr):
+		fun_tpe = function.symbol_type()
+		assert fun_tpe.is_function_type(), f"Symbol is not a function symbol: {function}"
+		assert fun_tpe.return_type == expr.get_type(), f"Return types don't match: {function} vs {expr}"
+		assert len(args) == len(fun_tpe.param_types), f"{len(args)} != {len(fun_tpe.param_types)}, {args} vs {fun_tpe.param_types}"
+		arg_types = tuple([a.symbol_type() for a in args])
+		assert arg_types == fun_tpe.param_types, f"In {function}, types don't match: {arg_types} vs {fun_tpe.param_types}"
+		fd = FunctionDefinition(symbol=function, args=args, expr=expr)
+		self.fun_defs.append(fd)
 
-	def check_sat(self, filename, assertions, funs=None, get_cmds=None):
-		stdout, delta = _check_sat(solver=self.bin, header=self.header, filename=filename, funs=funs, assertions=assertions, get_cmds=get_cmds)
+	def check_sat(self, filename, assertions, funs: List[Symbol], fun_defs: List[FunctionDefinition], get_cmds=None):
+		assert isinstance(funs, list) and isinstance(fun_defs, list)
+		get_cmds = default(get_cmds, [])
+		stdout, delta = _check_sat(solver=self.bin, header=self.header, filename=filename, funs=funs, fun_defs=fun_defs, assertions=assertions, get_cmds=get_cmds)
 		assert 'error' not in stdout, f"SMT solver call failed on {filename}: {stdout}"
 		return stdout, delta
 
 	def _check_vc(self, vc, filename):
 		vc_validity = Not(conjunction(*vc))
-		return self.check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename)
+		return self.check_sat(funs=self.funs, fun_defs=self.fun_defs, assertions=self.assertions + [vc_validity], filename=filename)
 
 	def _check_vc_is_sat(self, vc, filename, sat_time):
 		stdout, delta = self._check_vc(vc=vc, filename=filename)
@@ -225,7 +291,7 @@ class Solver:
 
 	def _verify_assumptions(self, filename, sat_time):
 		ff = os.path.splitext(filename)[0] + "_verify_assumptions.smt2"
-		stdout, delta = self.check_sat(funs=self.funs, assertions=self.assertions, filename=filename)
+		stdout, delta = self.check_sat(funs=self.funs, fun_defs=self.fun_defs, assertions=self.assertions, filename=filename)
 		sat_time.append(delta)
 		# if there is no satisfying assignment, then the assumptions are contradictory
 		return stdout == sat
@@ -269,7 +335,7 @@ class Solver:
 
 		# run SMT solver
 		vc_validity = Not(conjunction(*vc))
-		out, sat_time = self.check_sat(funs=self.funs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
+		out, sat_time = self.check_sat(funs=self.funs, fun_defs=self.fun_defs, assertions=self.assertions + [vc_validity], filename=filename, get_cmds=get_cmds)
 		lines = out.split('\n')
 		assert lines[0] == 'sat', f"model generation is only supported for satisfiable queries. Expected `sat` got `{lines[0]}`"
 
@@ -303,7 +369,7 @@ class Solver:
 		return values
 
 
-def _write_scrip(header, filename, funs: List[Tuple[Symbol, Optional[SmtExpr]]], assertions, cmds: list):
+def _write_scrip(header, filename, funs: List[Symbol], fun_defs: List[FunctionDefinition], assertions, cmds: list):
 	with open(filename, 'w') as ff:
 		print("(set-logic QF_AUFBV)", file=ff)
 		print("; smt script generated using yosys + a custom python script", file=ff)
@@ -311,11 +377,13 @@ def _write_scrip(header, filename, funs: List[Tuple[Symbol, Optional[SmtExpr]]],
 		print("; yosys generated:", file=ff)
 		print(header, file=ff)
 		print("; custom cmds", file=ff)
-		for symbol, expr in funs:
-			if expr is None:
-				SmtLibCommand(smtcmd.DECLARE_FUN, [symbol]).serialize(outstream=ff, daggify=False)
-			else:
-				SmtLibCommand(smtcmd.DEFINE_FUN, [symbol, expr]).serialize(outstream=ff, daggify=False)
+		for symbol in funs:
+			SmtLibCommand(smtcmd.DECLARE_FUN, [symbol]).serialize(outstream=ff, daggify=False)
+			print("", file=ff)
+		for fd in fun_defs:
+			#       NAME                     PARAMS_LIST    RTYPE               EXPR
+			args = [fd.symbol.symbol_name(), fd.args,       fd.expr.get_type(), fd.expr]
+			SmtLibCommand(smtcmd.DEFINE_FUN, args).serialize(outstream=ff, daggify=False)
 			print("", file=ff)
 		for a in assertions:
 			if isinstance(a, str):
@@ -328,12 +396,10 @@ def _write_scrip(header, filename, funs: List[Tuple[Symbol, Optional[SmtExpr]]],
 			print("", file=ff)
 
 #@cache_to_disk(1)
-def _check_sat(solver, header, filename, funs, assertions, get_cmds=None):
-	funs = [] if funs is None else funs
-	get_cmds = [] if get_cmds is None else get_cmds
+def _check_sat(solver, header, filename, funs: List[Symbol], fun_defs: List[FunctionDefinition], assertions: list, get_cmds: list):
 	start = time.time()
 	cmds = [SmtLibCommand(smtcmd.CHECK_SAT, [])] + get_cmds
-	_write_scrip(header=header, filename=filename, funs=funs, assertions=assertions, cmds=cmds)
+	_write_scrip(header=header, filename=filename, funs=funs, fun_defs=fun_defs, assertions=assertions, cmds=cmds)
 	r = subprocess.run([solver, filename], stdout=subprocess.PIPE, check=True)
 	stdout = r.stdout.decode('utf-8').strip()
 	delta = time.time() - start
@@ -346,14 +412,14 @@ _solve = Solver(header='')
 def is_valid(e) -> bool:
 	f = tempfile.NamedTemporaryFile()
 	funs = list(get_free_variables(e))
-	out, delta = _solve.check_sat(filename=f.name, assertions=[Not(e)], funs=[(f,None) for f in funs])
+	out, delta = _solve.check_sat(filename=f.name, assertions=[Not(e)], funs=funs, fun_defs=[])
 	return out == 'unsat'
 
 def is_unsat(e) -> bool:
 	f = tempfile.NamedTemporaryFile()
 	asserts = e if isinstance(e, list) else [e]
 	funs = list(functools.reduce(lambda a,b: a|b,  (get_free_variables(a) for a in asserts)))
-	out, delta = _solve.check_sat(filename=f.name, assertions=asserts, funs=[(f,None) for f in funs])
+	out, delta = _solve.check_sat(filename=f.name, assertions=asserts, funs=funs, fun_defs=[])
 	return out == 'unsat'
 
 class Simplifier(pysmt.simplifier.Simplifier):

@@ -61,7 +61,7 @@ class Verifier:
 		subgraphs = {nn: to_veri_spec(self.mod.submodules[nn], spec) for nn, spec in self.prob.submodules.items()}
 		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=topgraph.max_k) as check:
 			# test state encoding
-			check.state(Symbol("test_state"), Symbol("test_state"))
+			check.state(Symbol("test_state"), Symbol("test_state"), FALSE())
 
 			encode_toplevel_module(graph=topgraph, check=check, spec=self.prob.spec, mod=self.mod,
 			                       invariances=self.prob.invariances, mappings=self.prob.mappings)
