@@ -27,6 +27,10 @@ class MCProofEngine:
 		start = time.time()
 		solver = BtorMC(header=mod.btor2_src)
 
+		# declare custom states
+		for state in check.states:
+			solver.state(Symbol(state.name, state.tpe), state.next, state.init)
+
 		# unroll for N cycles
 		assert check.cycles < 2**16, "Too many cycles"
 		solver.comment(f"Unroll for k={check.cycles} cycles")
@@ -47,11 +51,9 @@ class MCProofEngine:
 			solver.state(sym, next=sym, init=expr)
 			solver.watch(f"__watch_{sym.symbol_name()}", expr)
 
-		# TODO: state
-		assert len(check.states) == 0
-
-		# TODO: global asserts
-		assert len(check.asserts) == 0
+		# add invariant asserts
+		for aa in check.asserts:
+			solver.add_assert(aa)
 
 		# add invariant assumptions
 		for aa in check.assumptions:
@@ -94,11 +96,13 @@ class MCProofEngine:
 			assert_expr = assert_to_expr[assert_ii]
 
 			# turn model into correct format
+			# TODO: add inputs to watched symbols
 			signals = list(watch_symbols.values())
 			indices = {sym.symbol_name(): ii for ii, sym in enumerate(signals)}
 			# this relies on stable dictionaries
 			data = [[model['steps'][ii][name]['data'] for name, sym in watch_symbols.items()] for ii in range(cycle+1)]
-			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0)
+			# TODO: get value for constants
+			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0, constants={})
 			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m, solver_time)
 
 class BtorMC:
