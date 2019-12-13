@@ -96,13 +96,15 @@ class MCProofEngine:
 			assert_expr = assert_to_expr[assert_ii]
 
 			# turn model into correct format
-			# TODO: add inputs to watched symbols
-			signals = list(watch_symbols.values())
+			input_signals = {name: Symbol(name, tpe) for name, tpe in mod.inputs.items()}
+			all_signals = {**watch_symbols, **input_signals}
+			signals = list(all_signals.values())
 			indices = {sym.symbol_name(): ii for ii, sym in enumerate(signals)}
 			# this relies on stable dictionaries
-			data = [[model['steps'][ii][name]['data'] for name, sym in watch_symbols.items()] for ii in range(cycle+1)]
-			# TODO: get value for constants
-			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0, constants={})
+			data = [[model['steps'][ii][name]['data'] for name, sym in all_signals.items()] for ii in range(cycle+1)]
+			# get value for constants
+			constants = {name: dd['data'] for name, dd in model['init'].items() if 'data' in dd}
+			m = Model(name=mod.name, cycles=cycle+1, indices=indices, signals=signals, data=data, creation_time=0.0, constants=constants)
 			return CheckFailure(solver_time, total_time, cycle, assert_ii-1, assert_expr, m, solver_time)
 
 class BtorMC:
