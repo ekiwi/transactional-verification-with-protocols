@@ -5,12 +5,11 @@
 
 from .spec import *
 from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Not
-from typing import Optional
+from typing import Optional, Any
 from .proto import protocol_edges
 
 
-def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, SmtSort], msg: str, tpe: Optional[SmtSort] = None, prefix: str = ""):
-	if len(prefix) > 0: allowed_symbols = {prefix+name: tpe for name, tpe in allowed_symbols.items()}
+def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, SmtSort], msg: str, tpe: Optional[SmtSort] = None):
 	for sym in get_free_variables(e):
 		name, sort = sym.symbol_name(), sym.symbol_type()
 		assert name in allowed_symbols, f"Expression {e} refers to unknown symbol {sym}.\n{msg}"
@@ -22,6 +21,9 @@ def merge_indices(in0: dict, in1: dict) -> dict:
 	common_keys = in0.keys() & in1.keys()
 	assert len(common_keys) == 0, f"Common keys: {common_keys}"
 	return {**in0, **in1}
+
+def prefix_index(prefix: str, in0: Dict[str, Any]) -> dict:
+	return {prefix+n: v for n,v in in0.items()}
 
 def symbol_index(symbols):
 	return { s.symbol_name(): s.symbol_type() for s in symbols }
@@ -60,7 +62,7 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 
 	# check the symbols referred to by the mappings
 	for mapping in prob.mappings:
-		check_smt_expr(mapping.arch, arch_state_symbols,
+		check_smt_expr(mapping.arch, prefix_index(f"{mod.name}.", arch_state_symbols),
 					   msg="Should only refer to architectural state.")
 		check_smt_expr(mapping.impl, invariance_symbols,
 					   msg="Should only refer to implementation state or architectural state of abstracted submodules.")
@@ -90,14 +92,12 @@ def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
 	for ee in protocol_edges(proto):
 		for pin, expr in ee.inputs.items():
 			assert pin in mod.inputs, f"{pin} is not a valid input of module {mod.name}. Inputs: {mod.inputs}"
-			check_smt_expr(expr, tran.args, tpe=mod.inputs[pin],
-						   msg="Input pins may be bound to constants or transaction arguments.",
-						   prefix=f"{mod.name}.{tran.name}.")
+			check_smt_expr(expr, prefix_index(f"{mod.name}.{tran.name}.", tran.args), tpe=mod.inputs[pin],
+						   msg="Input pins may be bound to constants or transaction arguments.")
 		for pin, expr in ee.outputs.items():
 			assert pin in mod.outputs, f"{pin} is not a valid output of module {mod.name}. Outputs: {mod.outputs}"
-			check_smt_expr(expr, tran.ret_args, tpe=mod.outputs[pin],
-						   msg="Output pins may be bound to constants or transaction return arguments.",
-						   prefix=f"{mod.name}.{tran.name}.")
+			check_smt_expr(expr, prefix_index(f"{mod.name}.{tran.name}.", tran.ret_args), tpe=mod.outputs[pin],
+						   msg="Output pins may be bound to constants or transaction return arguments.")
 
 def legacy_converter(proto: LegacyProtocol) -> Protocol:
 	start = ProtocolState()
@@ -114,20 +114,19 @@ def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dic
 	require_scalar(tran.args, "Transaction argument")
 	require_scalar(tran.ret_args, "Transaction return argument")
 
-	input_symbols = merge_indices(arch_state_symbols, tran.args)
+	input_symbols = merge_indices(prefix_index(f"{mod.name}.", arch_state_symbols),
+								  prefix_index(f"{mod.name}.{tran.name}.", tran.args))
 	output_symbols = merge_indices(arch_state_symbols, tran.ret_args)
 
 	# check semantics
 	for arg_name, arg_tpe in tran.ret_args.items():
 		assert arg_name in tran.semantics, f"Need to define return parameter {arg_name} : {arg_tpe} in semantics!"
 		check_smt_expr(tran.semantics[arg_name], input_symbols, tpe=arg_tpe,
-					   msg="Semantics can only refer to arguments and architectural state.",
-					   prefix=f"{mod.name}.{tran.name}.")
+					   msg="Semantics can only refer to arguments and architectural state.")
 	for state_name, state_tpe in arch_state_symbols.items():
 		if state_name in tran.semantics:
 			check_smt_expr(tran.semantics[state_name], input_symbols, tpe=state_tpe,
-						   msg="Semantics can only refer to arguments and architectural state.",
-						   prefix=f"{mod.name}.")
+						   msg="Semantics can only refer to arguments and architectural state.")
 	output_names = set(output_symbols.keys())
 	unknown_outputs = set(tran.semantics.keys()) - output_names
 	assert len(unknown_outputs) == 0, f"Semantics write to undeclared outputs {unknown_outputs}."
