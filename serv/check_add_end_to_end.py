@@ -9,17 +9,15 @@ from transactions import *
 from serv.check_regfile import regfile_spec
 from serv.check_alu import alu_spec
 
-regs = Symbol('regs', ArrayType(BVType(5), BVType(32)))
+regs = Symbol('serv_top.regs', ArrayType(BVType(5), BVType(32)))
+
+args={'rs1': BVType(5), 'rs2': BVType(5), 'rd': BVType(5)}
+rs1, rs2, rd = [Symbol(f"serv_top.Add.{n}", tpe) for n,tpe in args.items()]
 
 # build instruction
 funct7 = BV(0, 7)
-rs2 = Symbol('rs2', BVType(5))
-rs1 = Symbol('rs1', BVType(5))
 funct3 = BV(0, 3)
-rd = Symbol('rd', BVType(5))
 opcode = BV(0b0110011, 7)
-
-
 instruction = cat(funct7, rs2, rs1, funct3, rd, opcode)
 
 # toplevel spec
@@ -40,7 +38,7 @@ regs_n = Ite(Equals(rd, BV(0, 5)), regs, Store(regs, rd, c))
 semantics = {'regs': regs_n}
 
 serv_spec = Spec(state={'regs': regs.symbol_type()}, transactions=[
-	Transaction("Add", args={'rs1': BVType(5), 'rs2': BVType(5), 'rd': BVType(5)}, semantics=semantics, proto=protocol)],
+	Transaction("Add", args=args, semantics=semantics, proto=protocol)],
 	idle=LegacyProtocol([Transition(inputs={'i_ibus_ack': BV(0, 1), **always})])
 )
 
