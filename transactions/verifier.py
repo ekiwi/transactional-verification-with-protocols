@@ -101,7 +101,7 @@ def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod
 		for inv in invariances:
 			check.assert_at(state.ii, Implies(state.guard, inv))
 		# verify arch states after transaction
-		arch_next = {Symbol(name, tpe): Symbol(f"{mod.name}.{name}_n", tpe) for name, tpe in spec.state.items()}
+		arch_next = {Symbol(f"{mod.name}.{name}", tpe): Symbol(f"{mod.name}.{name}_n", tpe) for name, tpe in spec.state.items()}
 		for mapping in mappings:
 			arch = substitute(mapping.arch, arch_next)
 			check.assert_at(state.ii, Implies(state.guard, Equals(arch, mapping.impl)))
