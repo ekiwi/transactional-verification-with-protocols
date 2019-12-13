@@ -67,22 +67,29 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 		check_smt_expr(mapping.impl, invariance_symbols,
 					   msg="Should only refer to implementation state or architectural state of abstracted submodules.")
 
+	# check toplevel spec
+	check_spec(prob.spec, mod)
 
+	# check subspec
+	for name, spec in prob.submodules.items():
+		check_spec(spec, mod.submodules[name])
+
+def check_spec(spec: Spec, mod: RtlModule):
 	# check "idle" pseudo transaction
-	if prob.spec.idle is None:
-		prob.spec.idle = LegacyProtocol()
-	if isinstance(prob.spec.idle, LegacyProtocol):
-		prob.spec.idle = legacy_converter(prob.spec.idle)
-	assert isinstance(prob.spec.idle, Protocol)
-	assert len(prob.spec.idle.start.edges) == 1
-	assert len(prob.spec.idle.start.edges[0].next.edges) == 0
+	if spec.idle is None:
+		spec.idle = LegacyProtocol()
+	if isinstance(spec.idle, LegacyProtocol):
+		spec.idle = legacy_converter(spec.idle)
+	assert isinstance(spec.idle, Protocol)
+	assert len(spec.idle.start.edges) == 1
+	assert len(spec.idle.start.edges[0].next.edges) == 0
 
 	# check transactions
 	tran_index = {}
-	for tran in prob.spec.transactions:
+	for tran in spec.transactions:
 		assert tran.name not in tran_index, f"Transaction of name {tran.name} already exists: {tran} vs {tran_index[tran.name]}"
 		tran_index[tran.name] = tran
-		check_transaction(tran, mod, arch_state_symbols)
+		check_transaction(tran, mod, spec.state)
 
 def check_protocol(tran: Transaction, mod: RtlModule, proto: Protocol):
 	assert len(proto.start.edges) > 0, f"In transaction {tran.name}: zero transition protocols are not allowed!"
