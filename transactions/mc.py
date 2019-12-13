@@ -67,7 +67,7 @@ class MCProofEngine:
 		for ii, step in enumerate(check.steps):
 			assert step.cycle == ii
 			solver.comment(f"-------------------")
-			solver.comment(f"- Cycle {ii}")
+			solver.comment(f"- Transition {ii} -> {ii+1}")
 			solver.comment(f"-------------------")
 			for aa in step.assumptions:
 				solver.add_assume(in_cycle(ii, aa))
