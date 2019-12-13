@@ -6,15 +6,13 @@ from pysmt.shortcuts import *
 from transactions import *
 from functools import reduce
 
-regs = Symbol('regs', ArrayType(BVType(5), BVType(32)))
+args = {'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_addr': BVType(5), 'rd_enable': BVType(1), 'rd_data': BVType(32)}
+ret_args = {'rs1_data': BVType(32), 'rs2_data': BVType(32)}
+rs1_addr, rs2_addr, rd_addr, rd_enable, rd_data = [Symbol(f"serv_regfile.RW.{n}", tpe) for n,tpe in args.items()]
+rs1_data, rs2_data = [Symbol(f"serv_regfile.RW.{n}", tpe) for n,tpe in ret_args.items()]
+
+regs = Symbol('serv_regfile.regs', ArrayType(BVType(5), BVType(32)))
 memory = Symbol('memory', ArrayType(BVType(9), BVType(2)))
-rs1_addr = Symbol('rs1_addr', BVType(5))
-rs2_addr = Symbol('rs2_addr', BVType(5))
-rd_enable = Symbol('rd_enable', BVType(1))
-rd_addr = Symbol('rd_addr', BVType(5))
-rd_data = Symbol('rd_data', BVType(32))
-rs1_data = Symbol('rs1_data', BVType(32))
-rs2_data = Symbol('rs2_data', BVType(32))
 
 protocol = LegacyProtocol(
 	[Transition(inputs={'i_go': BV(1,1), 'i_rd_en': BV(0,1)}, outputs={'o_ready': BV(0,1)})] +
@@ -49,13 +47,7 @@ semantics = {
 
 regfile_spec = Spec(
 	state = {'regs': ArrayType(BVType(5), BVType(32))},
-	transactions=[
-		Transaction("RW", proto=protocol, semantics=semantics,
-					args={'rs1_addr': BVType(5), 'rs2_addr': BVType(5), 'rd_addr': BVType(5),
-						  'rd_enable': BVType(1), 'rd_data': BVType(32)},
-					ret_args={'rs1_data': BVType(32), 'rs2_data': BVType(32)}
-		)
-	],
+	transactions=[Transaction("RW", proto=protocol, semantics=semantics, args=args, ret_args=ret_args)],
 	idle=LegacyProtocol([Transition(
 			inputs={'i_go': BV(0,1), 'i_rd_en': BV(0,1)},
 			outputs={'o_ready': BV(0,1)} # cool test: comment out this line and the invariance that decode.state == 0 won't hold when verifying serv-top
