@@ -281,7 +281,7 @@ class VariableMapping:
 	mappings: List[int] = field(default_factory=list)
 
 class VeriGraphToModel:
-	def __init__(self, instance: str, mod_name: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr], transactions: List[Transaction]):
+	def __init__(self, instance: str, mod_name: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr], transactions: List[Transaction], arch_state: Dict[str, SmtSort]):
 		assert graph.checked, f"Graph not checked! {graph}"
 		self.instance = instance
 		self.mod_name = mod_name
@@ -297,6 +297,8 @@ class VeriGraphToModel:
 		self.mappings: Dict[Tuple[str,int,int],List[Tuple[SmtExpr, SmtExpr]]] = collections.defaultdict(list)
 		self.transactions = {tt.name: tt for tt in transactions}
 		self.input_subs: Dict[Symbol, Symbol] = {}
+		self.arch_state = arch_state
+		self.arch_state_updates: Dict[str, List[Tuple[SmtExpr, SmtExpr]]] = collections.defaultdict(list)
 		for tran in transactions:
 			for name, tpe in tran.args.items():
 				full_name = f"{mod_name}.{tran.name}.{name}"
@@ -311,6 +313,9 @@ class VeriGraphToModel:
 		for guard, state_id in self.transitions: state_next = Ite(guard, BV(state_id, 16), state_next)
 		self.check.state(self.state, state_next, init_expr=BV(0,16))
 
+		# check if transaction done
+		transaction_done = disjunction(*(tt[0] for tt in self.transitions if tt[1] == 0))
+
 		# implement variable mappings
 		for (name, msb, lsb), mappings in self.mappings.items():
 			assert len(mappings) > 0, f"{name}[{msb}:{lsb}] was never mapped!"
@@ -319,7 +324,7 @@ class VeriGraphToModel:
 			for guard, value in mappings: expr_next = Ite(guard, value, expr_next)
 			self.check.state(sym, expr_next)
 			sym_valid = Symbol(sym.symbol_name() + "_valid", BOOL)
-			expr_next_valid = disjunction(sym_valid, *(g for g,_ in mappings))
+			expr_next_valid = And(disjunction(sym_valid, *(g for g,_ in mappings)), Not(transaction_done))
 			self.check.state(sym_valid, expr_next_valid, init_expr=FALSE())
 			# TODO: invalidate when transitioning back to initial state
 
@@ -409,6 +414,15 @@ class VeriGraphToModel:
 				outputs = self.compute_outputs(tran=self.transactions[tran_name], edge=edge)
 				R = substitute(conjunction(*edge.constraints.ret_arg), outputs)
 				self.check.assume_always(Implies(next_cond, R))
+
+			# if this is the last edge => update architectural state
+			if next_state == 0 and len(self.arch_state) > 0:
+				assert len(edge.transactions) == 1, f"{edge.transactions}"
+				tran = self.transactions[list(edge.transactions)[0]]
+				for name, tpe in self.arch_state.items():
+					if name in tran.semantics:
+
+
 
 			# visit next states
 			self.visit_state(edge.next, Equals(self.state, BV(next_state, 16)))
