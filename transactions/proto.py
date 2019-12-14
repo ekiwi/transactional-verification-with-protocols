@@ -87,7 +87,7 @@ class VeriGraphIdleAdder:
 		new_idle_const = And(conjunction(*self.idle.constraints.input), not_others)
 		idle = replace(idle,
 					   constraints=EdgeConstraints(input=[new_idle_const],output=self.idle.constraints.output, arg=[], ret_arg=[]),
-					   next=VeriState(edges=[], transactions={}))
+					   next=VeriState(edges=[]))
 		s0.edges.append(idle)
 
 
@@ -115,9 +115,7 @@ class VeriGraphMerger:
 	def merge_states(self, s0: VeriState, s1: VeriState, path_constraints: List[SmtExpr]) -> VeriState:
 		#ii = s0.edges[0].ii
 		#print(f"Trying to merge @ {ii}: s0({s0.transactions} and s1({s1.transactions})")
-		new_state = VeriState([], {})
-		new_state.transactions = s0.transactions | s1.transactions
-		new_state.edges = copy.copy(s0.edges)
+		new_state = VeriState(copy.copy(s0.edges))
 
 		for e1 in s1.edges:
 			e1_constraints = self._constraints.get(e1)
@@ -136,7 +134,7 @@ class VeriGraphMerger:
 					next_state = self.merge_states(e0.next, e1.next, path_constraints + e0_constraints.input + e0_constraints.output)
 					# replace e0 with merged edge
 					new_state.edges.remove(e0)
-					new_state.edges.append(replace(e0, next=next_state))
+					new_state.edges.append(replace(e0, next=next_state, transactions=e1.transactions | e0.transactions))
 					merged = True
 					break
 				assert same | exclusive, f"Edges {e0} and {e1} are not the same but also not mutually exclusive. Merge failed!"
@@ -206,14 +204,14 @@ class VeriGraphChecker:
 
 	def visit_edge(self, edge: VeriEdge, path_constraints: List[SmtExpr]):
 		assert edge.next is not None and isinstance(edge.next, VeriState)
-		assert len(edge.next.transactions) > 0, f"No transactions @ {edge}"
+		assert len(edge.transactions) > 0, f"No transactions @ {edge}"
 		# if multiple transactions could be active on this edge, then we don't support mapping variables yet...
 		# TODO: revisit this
-		if len(edge.next.transactions) > 1:
+		if len(edge.transactions) > 1:
 			assert len(edge.constraints.arg) == 0, f"Cannot map arguments while multiple transactions could be active!" \
-											       f"{edge.constraints.arg} @ {[tt.name for tt in edge.next.transactions]}"
+											       f"{edge.constraints.arg} @ {[tt for tt in edge.transactions]}"
 			assert len(edge.constraints.ret_arg) == 0, f"Cannot map arguments while multiple transactions could be active!" \
-											           f"{edge.constraints.ret_arg} @ {[tt.name for tt in edge.next.transactions]}"
+											           f"{edge.constraints.ret_arg} @ {[tt for tt in edge.transactions]}"
 		#
 		self._max_k = max(self._max_k, edge.ii+1)
 		# create an edge symbol
@@ -231,7 +229,6 @@ def check_verification_graph(graph: VeriSpec, io_prefix: str) -> VeriSpec:
 @dataclass
 class VeriState:
 	edges: List[VeriEdge]
-	transactions: Set[str]
 
 @dataclass
 class ArgMapping:
@@ -245,6 +242,7 @@ class VeriEdge:
 	ii: int
 	# constraints of the form: `(done = 1)`
 	constraints: EdgeConstraints
+	transactions: Set[str]
 	arg_mappings: List[ArgMapping] = field(default_factory=list)
 	next: Optional[VeriState] = None
 	def __str__(self):
@@ -379,14 +377,14 @@ class ProtocolToVerificationGraphConverter:
 			self.intervals[name].append((msb,lsb))
 		arg_mappings = [ArgMapping(name=name, msb=msb, lsb=lsb, expr=expr) for name,msb,lsb,expr in new_mappings]
 
-		new_edge = VeriEdge(ii, constraints, arg_mappings=arg_mappings)
+		new_edge = VeriEdge(ii, constraints, arg_mappings=arg_mappings, transactions={self.tran.name})
 
 		#print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
 		new_edge.next = self.visit_state(prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
 		return new_edge
 
 	def visit_state(self, prefix: List[VeriEdge], arg_map: Dict[str, int], ret_arg_map: Dict[str, int], state: ProtocolState) -> VeriState:
-		new_state = VeriState([], transactions={self.tran.name})
+		new_state = VeriState([])
 		for edge in state.edges:
 			new_edge = self.visit_edge(prefix, arg_map, ret_arg_map, edge)
 			new_state.edges.append(new_edge)
