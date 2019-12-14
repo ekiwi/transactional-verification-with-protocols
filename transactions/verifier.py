@@ -391,8 +391,8 @@ class VeriGraphToModel:
 
 			# assume that the output will follow the transaction semantics
 			if len(edge.constraints.ret_arg) > 0:
-				assert len(state.transactions) == 1, f"{state.transactions}"
-				tran_name = list(state.transactions)[0]
+				assert len(edge.transactions) == 1, f"{edge.transactions}"
+				tran_name = list(edge.transactions)[0]
 				outputs = self.compute_outputs(tran=self.transactions[tran_name], edge=edge)
 				R = substitute(conjunction(*edge.constraints.ret_arg), outputs)
 				self.check.assume_always(Implies(next_cond, R))
