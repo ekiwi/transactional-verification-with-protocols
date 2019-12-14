@@ -296,6 +296,11 @@ class VeriGraphToModel:
 		self.state = Symbol(f"{self.instance}.{self.mod_name}.state", BVType(16))
 		self.mappings: Dict[Tuple[str,int,int],List[Tuple[SmtExpr, SmtExpr]]] = collections.defaultdict(list)
 		self.transactions = {tt.name: tt for tt in transactions}
+		self.input_subs: Dict[Symbol, Symbol] = {}
+		for tran in transactions:
+			for name, tpe in tran.args.items():
+				full_name = f"{mod_name}.{tran.name}.{name}"
+				self.input_subs[Symbol(full_name, tpe)] = self.get_var(full_name)
 
 	def convert(self) -> List[FinalState]:
 		self.visit_state(self.graph.start, Equals(self.state, BV(0, 16)))
@@ -319,6 +324,14 @@ class VeriGraphToModel:
 			# TODO: invalidate when transitioning back to initial state
 
 		return self.final_states
+
+	def get_var(self, name: str):
+		assert len(self.graph.intervals[name]) > 0, f"No intervals for {name}"
+		intervals = sorted(self.graph.intervals[name], key=lambda x: x[0])
+		pieces = [Symbol(f"{self.instance}.{name}_{msb}_{lsb}", BVType(msb - lsb + 1)) for msb, lsb in intervals]
+		assert len(pieces) == len(self.graph.intervals[name])
+		return reduce(BVConcat, pieces)
+
 
 	def get_var_at(self, name: str, edge: VeriEdge) -> SmtExpr:
 		assert len(self.graph.intervals[name]) > 0, f"No intervals for {name}"
@@ -348,7 +361,7 @@ class VeriGraphToModel:
 
 		##### constraints
 		# input constraints
-		I = [conjunction(*edge.constraints.input) for edge in state.edges]
+		I = [substitute(conjunction(*edge.constraints.input), self.input_subs) for edge in state.edges]
 		# output constraints
 		O = [conjunction(*edge.constraints.output) for edge in state.edges]
 
