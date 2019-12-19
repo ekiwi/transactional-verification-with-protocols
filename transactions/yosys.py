@@ -278,7 +278,7 @@ def expose_module(modules: dict, top: str, instance_name: str):
 		port_names.add(mangled_name)
 		p_mod[p_dir + 's'][p_name] = (('bv', p_bits), -1, mangled_name)
 		# invert direction to expose module at toplevel
-		port_dir = "-input" if p_dir == 'out' else "-output"
+		port_dir = "-input" if p_dir == 'output' else "-output"
 		cmds.append(f"add {port_dir} {mangled_name} {p_bits}")
 		return mangled_name
 
