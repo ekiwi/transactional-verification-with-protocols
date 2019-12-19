@@ -315,7 +315,7 @@ class VeriGraphToModel:
 				self.input_subs[Symbol(full_name, tpe)] = self.get_var(full_name)
 
 	def convert(self) -> List[FinalState]:
-		self.visit_state(self.graph.start, Equals(self.state, BV(0, 16)))
+		self.visit_state(self.graph.start, 0)
 
 		# implement state transitions
 		invalid_state = BV((1<<16)-1, 16)
@@ -403,9 +403,11 @@ class VeriGraphToModel:
 		return {Symbol(tran_prefix+name,tpe): substitute(tran.semantics[name],subs) for name, tpe in tran.ret_args.items()}
 
 
-	def visit_state(self, state: VeriState, guard: SmtExpr):
+	def visit_state(self, state: VeriState, state_id: int):
 		if len(state.edges) == 0:
 			return
+
+		guard = Equals(self.state, BV(state_id, 16))
 
 		##### constraints
 		# input constraints
@@ -444,11 +446,14 @@ class VeriGraphToModel:
 			else:
 				next_state = len(self.states)
 				self.states.append('') # TODO: name
-			self.transitions.append((next_cond, next_state))
+			# declare transition signal
+			transition = Symbol(f"{self.instance}.{self.mod_name}.s{state_id}_to_s{next_state}_{ei}")
+			self.check.signal(transition, next_cond)
+			self.transitions.append((transition, next_state))
 
 			# argument mapping
 			for m in edge.arg_mappings:
-				self.mappings[(m.name, m.msb, m.lsb)].append((next_cond, m.expr))
+				self.mappings[(m.name, m.msb, m.lsb)].append((transition, m.expr))
 
 			# assume that the output will follow the transaction semantics
 			if len(edge.constraints.ret_arg) > 0:
@@ -456,12 +461,12 @@ class VeriGraphToModel:
 				tran_name = list(edge.transactions)[0]
 				outputs = self.compute_outputs(tran=self.transactions[tran_name], edge=edge)
 				R = substitute(conjunction(*edge.constraints.ret_arg), outputs)
-				self.check.assume_always(Implies(next_cond, R))
+				self.check.assume_always(Implies(transition, R))
 
 			# if this is the last edge => update architectural state
 			if next_state == 0 and len(self.arch_state) > 0:
 				assert len(edge.transactions) == 1, f"{edge.transactions}"
-				self.arch_state_updates.append(ArchStateUpdate(list(edge.transactions)[0], next_cond, edge))
+				self.arch_state_updates.append(ArchStateUpdate(list(edge.transactions)[0], transition, edge))
 
 			# visit next states
-			self.visit_state(edge.next, Equals(self.state, BV(next_state, 16)))
+			self.visit_state(edge.next, next_state)
