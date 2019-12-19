@@ -63,7 +63,7 @@ class Verifier:
 
 		topgraph = to_veri_spec(self.mod, self.prob.spec)
 		subgraphs = {nn: to_veri_spec(self.mod.submodules[nn], spec) for nn, spec in self.prob.submodules.items()}
-		with BoundedCheck(f"module {self.mod.name} correct implements its spec", self, cycles=topgraph.max_k) as check:
+		with BoundedCheck(f"module {self.mod.name} correctly implements its spec", self, cycles=topgraph.max_k) as check:
 			# test state encoding
 			check.state(Symbol("test_state", BVType()), Symbol("test_state", BVType()), BV(0,32))
 
@@ -274,7 +274,7 @@ def encode_submodule(instance: str, graph: VeriSpec, check: BoundedCheck, spec: 
 	idle_edge = to_verification_graph(spec.idle, tran=idle_tran, mod=mod).start.edges[0]
 	graph = add_idle_edge(graph, idle_edge)
 	# TODO: recheck the graph after adding idle edge since the add_idle_edge implementation is probbably buggy
-	VeriGraphToModel(instance, mod.name, graph, check, get_inactive_reset(mod), spec.transactions).convert()
+	VeriGraphToModel(instance, mod.name, graph, check, get_inactive_reset(mod), spec.transactions, spec.state).convert()
 
 
 @dataclass
@@ -283,6 +283,12 @@ class VariableMapping:
 	msb: int
 	lsb: int
 	mappings: List[int] = field(default_factory=list)
+
+@dataclass
+class ArchStateUpdate:
+	transaction: str
+	condition: SmtExpr
+	edge: VeriEdge
 
 class VeriGraphToModel:
 	def __init__(self, instance: str, mod_name: str, graph: VeriSpec, check: BoundedCheck, inactive_rst: Optional[SmtExpr], transactions: List[Transaction], arch_state: Dict[str, SmtSort]):
@@ -302,7 +308,7 @@ class VeriGraphToModel:
 		self.transactions = {tt.name: tt for tt in transactions}
 		self.input_subs: Dict[Symbol, Symbol] = {}
 		self.arch_state = arch_state
-		self.arch_state_updates: Dict[str, List[Tuple[SmtExpr, SmtExpr]]] = collections.defaultdict(list)
+		self.arch_state_updates: List[ArchStateUpdate] = []
 		for tran in transactions:
 			for name, tpe in tran.args.items():
 				full_name = f"{mod_name}.{tran.name}.{name}"
@@ -330,7 +336,33 @@ class VeriGraphToModel:
 			sym_valid = Symbol(sym.symbol_name() + "_valid", BOOL)
 			expr_next_valid = And(disjunction(sym_valid, *(g for g,_ in mappings)), Not(transaction_done))
 			self.check.state(sym_valid, expr_next_valid, init_expr=FALSE())
-			# TODO: invalidate when transitioning back to initial state
+
+		# update architectural state at the end of transactions
+		states: Dict[str, List[Tuple[SmtExpr, SmtExpr]]] = {name:[] for name in self.arch_state.keys()}
+		# collect all state updates
+		for update in self.arch_state_updates:
+			# ignore idle transactions which do not update any state by definition
+			if update.transaction == "IDLE": continue
+			tran = self.transactions[update.transaction]
+			subs = self.get_subs(tran, update.edge)
+			for name in self.arch_state.keys():
+				# skip any state that isn't updated
+				if name not in tran.semantics: continue
+				# compute state update
+				update_expr = substitute(tran.semantics[name], subs)
+				# add update
+				states[name].append((update.condition, update_expr))
+		# declare state and next function
+		for name, tpe in self.arch_state.items():
+			mappings = states[name]
+			assert len(mappings) > 0, f"State {name} : {tpe} is never updated!"
+			sym = Symbol(f"{self.instance}.{self.mod_name}.{name}", tpe)
+			expr_next = sym
+			for guard, value in mappings: expr_next = Ite(guard, value, expr_next)
+			self.check.state(sym, expr_next)
+			sym_valid = Symbol(sym.symbol_name() + "_valid", BOOL)
+			expr_next_valid = And(disjunction(sym_valid, *(g for g, _ in mappings)), Not(transaction_done))
+			self.check.state(sym_valid, expr_next_valid, init_expr=FALSE())
 
 		return self.final_states
 
@@ -357,10 +389,17 @@ class VeriGraphToModel:
 		assert len(pieces) == len(self.graph.intervals[name])
 		return reduce(BVConcat, pieces)
 
+	def get_subs(self, tran: Transaction, edge: VeriEdge) -> Dict[Symbol, SmtExpr]:
+		state = {Symbol(f"{self.mod_name}.{name}", tpe): Symbol(f"{self.instance}.{self.mod_name}.{name}", tpe)
+				 for name, tpe in self.arch_state.items()}
+		tran_prefix = f"{self.mod_name}.{tran.name}."
+		args = {Symbol(tran_prefix + name, tpe): self.get_var_at(tran_prefix + name, edge)
+				for name, tpe in tran.args.items()}
+		return {**state, **args}
+
 	def compute_outputs(self, tran: Transaction, edge: VeriEdge) -> Dict[Symbol, SmtExpr]:
 		tran_prefix = f"{self.mod_name}.{tran.name}."
-		# TODO: include arch state state
-		subs = {Symbol(tran_prefix+name,tpe): self.get_var_at(tran_prefix+name, edge) for name, tpe in tran.args.items()}
+		subs = self.get_subs(tran, edge)
 		return {Symbol(tran_prefix+name,tpe): substitute(tran.semantics[name],subs) for name, tpe in tran.ret_args.items()}
 
 
@@ -422,11 +461,7 @@ class VeriGraphToModel:
 			# if this is the last edge => update architectural state
 			if next_state == 0 and len(self.arch_state) > 0:
 				assert len(edge.transactions) == 1, f"{edge.transactions}"
-				tran = self.transactions[list(edge.transactions)[0]]
-				for name, tpe in self.arch_state.items():
-					if name in tran.semantics:
-
-
+				self.arch_state_updates.append(ArchStateUpdate(list(edge.transactions)[0], next_cond, edge))
 
 			# visit next states
 			self.visit_state(edge.next, Equals(self.state, BV(next_state, 16)))
