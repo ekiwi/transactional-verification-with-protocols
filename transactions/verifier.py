@@ -368,7 +368,7 @@ class VeriGraphToModel:
 
 	def get_var(self, name: str):
 		assert len(self.graph.intervals[name]) > 0, f"No intervals for {name}"
-		intervals = sorted(self.graph.intervals[name], key=lambda x: x[0])
+		intervals = reversed(sorted(self.graph.intervals[name], key=lambda x: x[0]))
 		pieces = [Symbol(f"{self.instance}.{name}_{msb}_{lsb}", BVType(msb - lsb + 1)) for msb, lsb in intervals]
 		assert len(pieces) == len(self.graph.intervals[name])
 		return reduce(BVConcat, pieces)
@@ -377,7 +377,7 @@ class VeriGraphToModel:
 	def get_var_at(self, name: str, edge: VeriEdge) -> SmtExpr:
 		assert len(self.graph.intervals[name]) > 0, f"No intervals for {name}"
 		# sort by msb (bigger first)
-		intervals = sorted(self.graph.intervals[name], key=lambda x: x[0])
+		intervals = reversed(sorted(self.graph.intervals[name], key=lambda x: x[0]))
 		pieces = []
 		for msb, lsb in intervals:
 			try:
