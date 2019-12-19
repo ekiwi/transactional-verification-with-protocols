@@ -51,17 +51,19 @@ class MCProofEngine:
 			solver.state(sym, next=sym, init=expr)
 			solver.watch(f"__watch_{sym.symbol_name()}", expr)
 
+		# keep track of asserts
+		assert_to_cycle = []
+		assert_to_expr = []
+
 		# add invariant asserts
 		for aa in check.asserts:
 			solver.add_assert(aa)
+			assert_to_cycle.append(-1)
+			assert_to_expr.append(aa)
 
 		# add invariant assumptions
 		for aa in check.assumptions:
 			solver.add_assume(aa)
-
-		# keep track of asserts
-		assert_to_cycle = []
-		assert_to_expr = []
 
 		# check each step
 		for ii, step in enumerate(check.steps):
@@ -77,7 +79,13 @@ class MCProofEngine:
 				assert_to_expr.append(aa)
 
 		# watch outputs + state in order to get their values in case of a witness
-		watched_signals = ((n,t) for n,t in chain(mod.outputs.items(), mod.state.items()) if not t.is_array_type())
+		watched_state = [(n,t) for n,t in mod.state.items() if not t.is_array_type()]
+		watched_outputs = [(n, t) for n, t in mod.outputs.items()]
+		watched_custom_state = [(st.name, st.tpe) for st in check.states]
+		watched_sub_io = []
+		for submod in mod.submodules.values():
+			watched_sub_io += [(submod.io_prefix+n, t) for n,t in chain(submod.outputs.items(), submod.inputs.items())]
+		watched_signals = watched_state + watched_outputs + watched_custom_state + watched_sub_io
 		watch_symbols = { f"__watch_{sig_name}": Symbol(sig_name, sig_tpe) for sig_name, sig_tpe in watched_signals}
 		for name, expr in watch_symbols.items(): solver.watch(name, expr)
 
