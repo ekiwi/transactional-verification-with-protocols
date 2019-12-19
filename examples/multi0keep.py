@@ -44,7 +44,7 @@ spec = Spec(state={'data': BVType(32)}, transactions=[
 invariances = [
 	Equals(Symbol('running', BVType(1)), BV(0,1)),
 ]
-mappings = []
+mappings = [StateMapping(data, Symbol('buffer', BVType(32)))]
 
 def main() -> int:
 	prob = VerificationProblem(spec=spec, implementation='multi0keep',
