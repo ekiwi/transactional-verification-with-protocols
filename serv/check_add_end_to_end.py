@@ -111,8 +111,8 @@ def main() -> int:
 
 
 	# select proof engine
-	ee = SMT2ProofEngine(outdir='../smt2')
-	# ee = MCProofEngine(outdir="../btor2")
+	#ee = SMT2ProofEngine(outdir='../smt2', simplify=True)
+	ee = MCProofEngine(outdir="../btor2")
 
 	#
 	mod = Module.load(prob.implementation, src,
