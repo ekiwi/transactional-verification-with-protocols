@@ -29,7 +29,10 @@ class MCProofEngine:
 
 		# declare custom states
 		for state in check.states:
-			solver.state(Symbol(state.name, state.tpe), state.next, state.init)
+			solver.state(Symbol(state.name, state.tpe), None, state.init)
+		# define custom states
+		for state in check.states:
+			solver.state_next(Symbol(state.name, state.tpe), state.next)
 
 		# unroll for N cycles
 		assert check.cycles < 2**16, "Too many cycles"
@@ -81,7 +84,7 @@ class MCProofEngine:
 		# watch outputs + state in order to get their values in case of a witness
 		watched_state = [(n,t) for n,t in mod.state.items() if not t.is_array_type()]
 		watched_outputs = [(n, t) for n, t in mod.outputs.items()]
-		watched_custom_state = [(st.name, st.tpe) for st in check.states]
+		watched_custom_state = [(st.name, st.tpe) for st in check.states if not st.tpe.is_array_type()]
 		watched_sub_io = []
 		for submod in mod.submodules.values():
 			watched_sub_io += [(submod.io_prefix+n, t) for n,t in chain(submod.outputs.items(), submod.inputs.items())]
@@ -220,6 +223,14 @@ class BtorMC:
 			next = self._smt2btor(next)
 			self._l(f"next {sort} {st} {next}")
 		return sym
+
+	def state_next(self, state: Symbol, next):
+		assert state.symbol_name() in self._name_to_ii, f"State {state} needs to be declared first!"
+		sort = self._sort(state.symbol_type())
+		st = self._name_to_ii[state.symbol_name()]
+		self.comment(f"{state.symbol_name()}' = {next}")
+		next = self._smt2btor(next)
+		self._l(f"next {sort} {st} {next}")
 
 	def add_assume(self, formula):
 		self.comment(f"assume: {formula}")
