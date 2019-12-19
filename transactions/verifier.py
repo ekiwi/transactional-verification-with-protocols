@@ -101,7 +101,7 @@ def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod
 		for inv in invariances:
 			check.assert_at(state.ii, Implies(state.guard, inv))
 		# verify arch states after transaction
-		arch_next = {Symbol(f"{mod.name}.{name}", tpe): Symbol(f"{mod.name}.{name}_n", tpe) for name, tpe in spec.state.items()}
+		arch_next = {Symbol(f"{mod.name}.{name}", tpe): Symbol(f"{mod.name}.{state.transaction}.{name}_n", tpe) for name, tpe in spec.state.items()}
 		for mapping in mappings:
 			arch = substitute(mapping.arch, arch_next)
 			check.assert_at(state.ii, Implies(state.guard, Equals(arch, mapping.impl)))
@@ -148,7 +148,7 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 			# keep state the same if no update specified
 			prev_state = state_syms[state_name]
 			next_state = tran.semantics.get(state_name, prev_state)
-			check.function(Symbol(module_prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
+			check.function(Symbol(tran_prefix + state_name + "_n", state_tpe), substitute(next_state, mapping))
 
 	# encode graph
 	final_states = VeriGraphToCheck(is_toplevel, offset, module_prefix, graph, check, get_inactive_reset(mod), mapping).convert()
@@ -158,6 +158,7 @@ def encode_module(is_toplevel: bool, offset: int, prefix: str, graph: VeriSpec, 
 class FinalState:
 	guard: SmtExpr
 	ii: int
+	transaction: str
 
 SymMap = Dict[Symbol, Symbol]
 
@@ -184,10 +185,6 @@ class VeriGraphToCheck:
 		self.check.assert_at(ii, Implies(antecedent, consequent))
 
 	def visit_state(self, state: VeriState, guard: SmtExpr, ii: int):
-		if len(state.edges) == 0:
-			self.final_states.append(FinalState(guard=guard, ii=ii))
-			return
-
 		if ii >= self.check.cycles:
 			return # incomplete
 
@@ -262,7 +259,14 @@ class VeriGraphToCheck:
 
 		# visit next states
 		for edge in state.edges:
-			self.visit_state(edge.next, self.edge_symbols[id(edge)], ii+1)
+			if len(edge.next.edges) > 0:
+				self.visit_state(edge.next, self.edge_symbols[id(edge)], ii + 1)
+			else:
+				assert len(edge.transactions) == 1, f"expect exactly one transaction to be active in final transition."
+				guard = self.edge_symbols[id(edge)]
+				transaction = list(edge.transactions)[0]
+				self.final_states.append(FinalState(guard=guard, ii=ii +1, transaction=transaction))
+
 
 
 def encode_submodule(instance: str, graph: VeriSpec, check: BoundedCheck, spec: Spec, mod: RtlModule):
