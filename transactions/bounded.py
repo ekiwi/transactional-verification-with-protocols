@@ -101,6 +101,13 @@ class BoundedCheck:
 		self._sym_names.add(name)
 		self.data.states.append(State(name, symbol.symbol_type(), next_expr, init_expr))
 
+	def signal(self, symbol: Symbol, expr: SmtExpr):
+		assert self._active
+		name = symbol.symbol_name()
+		assert name not in self._sym_names, f"symbol {symbol} already exists!"
+		self._sym_names.add(name)
+		self.data.signals.append(Signal(name, symbol.symbol_type(), expr))
+
 	def initialize_state(self):
 		assert self._active
 		self.data.initialize = True
@@ -142,6 +149,12 @@ class State:
 	init: Optional[SmtExpr]
 
 @dataclass
+class Signal:
+	name: str
+	tpe: SmtSort
+	expr: SmtExpr
+
+@dataclass
 class BoundedCheckData:
 	name: str
 	cycles: int
@@ -152,6 +165,7 @@ class BoundedCheckData:
 	assumptions : list = field(default_factory=list)
 	asserts: list = field(default_factory=list)
 	states : List[State] = field(default_factory=list)
+	signals: List[Signal] = field(default_factory=list)
 
 from vcd import VCDWriter
 
