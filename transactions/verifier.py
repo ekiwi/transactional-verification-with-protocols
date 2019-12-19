@@ -356,7 +356,7 @@ class VeriGraphToModel:
 		for name, tpe in self.arch_state.items():
 			mappings = states[name]
 			assert len(mappings) > 0, f"State {name} : {tpe} is never updated!"
-			sym = Symbol(f"{self.instance}.{self.mod_name}.{name}", tpe)
+			sym = Symbol(f"{self.instance}.{name}", tpe)
 			expr_next = sym
 			for guard, value in mappings: expr_next = Ite(guard, value, expr_next)
 			self.check.state(sym, expr_next)
@@ -390,7 +390,7 @@ class VeriGraphToModel:
 		return reduce(BVConcat, pieces)
 
 	def get_subs(self, tran: Transaction, edge: VeriEdge) -> Dict[Symbol, SmtExpr]:
-		state = {Symbol(f"{self.mod_name}.{name}", tpe): Symbol(f"{self.instance}.{self.mod_name}.{name}", tpe)
+		state = {Symbol(f"{self.mod_name}.{name}", tpe): Symbol(f"{self.instance}.{name}", tpe)
 				 for name, tpe in self.arch_state.items()}
 		tran_prefix = f"{self.mod_name}.{tran.name}."
 		args = {Symbol(tran_prefix + name, tpe): self.get_var_at(tran_prefix + name, edge)
