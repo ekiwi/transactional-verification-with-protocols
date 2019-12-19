@@ -29,6 +29,52 @@ class SMT2ProofEngine:
 	def states(self, check: BoundedCheckData, solver: Solver, mod_name: str, signal_symbols: List[Symbol], map_sym) -> Tuple[Symbol, Callable[[Symbol], dict]]:
 		# derive function names for module unrolling
 		state_t = Type(mod_name + "_s")
+		state_symbol = Symbol("state", state_t)
+		transition_fun = Symbol(mod_name + "_t", FunctionType(BOOL, [state_t, state_t]))
+
+		# early exit in case there are no custom states
+		if len(check.states) == 0 and len(check.signals) == 0: return transition_fun, lambda s: {}
+
+		# create functions to represent custom state
+		custom_state_funs = [Symbol(state.name + "_fun", FunctionType(state.tpe, [state_t])) for state in check.states]
+		for ff in custom_state_funs: solver.fun(ff)
+
+		# create functions to represent custom state and signals
+		custom_signal_funs = [Symbol(sig.name + "_fun", FunctionType(sig.tpe, [state_t])) for sig in check.signals]
+		custom_sig_mappings = {Symbol(sig.name, sig.tpe): Function(ff, [state_symbol]) for sig, ff in zip(check.signals, custom_signal_funs)}
+
+		# create mappings for all signals and state referred to inside a state_next function
+		signal_mappings = {sym: map_sym(sym, state_symbol) for sym in signal_symbols}
+		state_mappings = {Symbol(state.name, state.tpe): Function(ff, [state_symbol])
+						  for state, ff in zip(check.states, custom_state_funs)}
+		sn_map = {**signal_mappings, **state_mappings, **custom_sig_mappings}
+
+		# declare signal functions
+		for signal, ff in zip(check.signals, custom_signal_funs):
+			solver.fun_def(ff, [state_symbol], substitute(signal.expr, sn_map))
+
+		# create next functions
+		custom_state_next_funs = [Symbol(state.name + "_next_fun", FunctionType(state.tpe, [state_t])) for state in check.states]
+		for state, next_fun in zip(check.states, custom_state_next_funs):
+			solver.fun_def(next_fun, [state_symbol], substitute(state.next, sn_map))
+
+		# create a custom transition function
+		custom_tran_fun = Symbol("transition", FunctionType(BOOL, [state_t, state_t]))
+		next_state_sym = Symbol("next_state", state_t)
+		tran_exprs  = [Function(transition_fun, [state_symbol, next_state_sym])]
+		tran_exprs += [equal(Function(f_n, [state_symbol]), Function(f, [next_state_sym]))
+					   for f_n,f in zip(custom_state_next_funs, custom_state_funs)]
+		solver.fun_def(custom_tran_fun, [state_symbol, next_state_sym], reduce(And, tran_exprs))
+
+		def get_mapping(state: Symbol):
+			return {Symbol(st.name, st.tpe): Function(ff, [state]) for st,ff in
+					chain(zip(check.states, custom_state_funs), zip(check.signals, custom_signal_funs))}
+
+		return custom_tran_fun, get_mapping
+
+	def symbols(self, check: BoundedCheckData, solver: Solver, mod_name: str, signal_symbols: List[Symbol], map_sym) -> Tuple[Symbol, Callable[[Symbol], dict]]:
+		# derive function names for module unrolling
+		state_t = Type(mod_name + "_s")
 		transition_fun = Symbol(mod_name + "_t", FunctionType(BOOL, [state_t, state_t]))
 
 		# early exit in case there are no custom states
