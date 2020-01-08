@@ -404,7 +404,9 @@ class Solver:
 		for line in lines:
 			if line.strip() == 'sat': continue
 			m = re_read.match(line)
-			assert m is not None, f"Failed to parse line: {line}"
+			if m is None:
+				print(f"WARN: Failed to parse line: {line}")
+				continue
 			name, value = m.groups()
 			values[name] = parse_value(value)
 
