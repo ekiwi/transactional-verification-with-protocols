@@ -246,7 +246,7 @@ class VeriEdge:
 	arg_mappings: List[ArgMapping] = field(default_factory=list)
 	next: Optional[VeriState] = None
 	def __str__(self):
-		return f"Edge(ii={self.ii}, constraints={self.constraints}, next=State(transactions={self.next.transactions}, degree={len(self.next.edges)})"
+		return f"Edge(ii={self.ii}, constraints={self.constraints}, transactions={self.transactions}, next=State(degree={len(self.next.edges)})"
 
 @dataclass
 class EdgeConstraints:
