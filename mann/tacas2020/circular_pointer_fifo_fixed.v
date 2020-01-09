@@ -32,8 +32,7 @@ module circular_pointer_fifo(clk, rst, push, pop, data_in,
   logic [PTRWID-1:0] wrPtr;
   wire  [PTRWID-1:0] wrPtrNxt;
 
-  `define FULL {1'b0,{(PTRWID-1){1'b1}}
-  assign wrPtrNxt = push? ((wrPtr == 'd7)? 'd0 : (wrPtr + 'd1)) : wrPtr;
+  assign wrPtrNxt = push? ((wrPtr == DEPTH - 'd1)? 'd0 : (wrPtr + 'd1)) : wrPtr;
 
   FF
     #(.WIDTH(PTRWID))
@@ -50,7 +49,7 @@ module circular_pointer_fifo(clk, rst, push, pop, data_in,
   logic [PTRWID-1:0] rdPtr;
   wire  [PTRWID-1:0] rdPtrNxt;
 
-  assign rdPtrNxt = pop? ((rdPtr == 'd7)? 'd0 : (rdPtr + 'd1)) : rdPtr;
+  assign rdPtrNxt = pop? ((rdPtr == DEPTH - 'd1)? 'd0 : (rdPtr + 'd1)) : rdPtr;
 
   FF #(.WIDTH(PTRWID)) ff_rdPtr (.rst(rst),
                                  .clk(clk),
