@@ -122,9 +122,12 @@ def main() -> int:
 	prob = verification_problem(mem_fifo)
 	Verifier(mem_fifo, prob, ee).proof_all()
 
-	#print("shift_fifo")
-	#prob = verification_problem(shift_fifo)
-	#Verifier(shift_fifo, prob, ee).proof_all()
+	# ugly part of using PySMT
+	reset_env(); print()
+
+	print("shift_fifo")
+	prob = verification_problem(shift_fifo)
+	Verifier(shift_fifo, prob, ee).proof_all()
 
 	return 0
 
