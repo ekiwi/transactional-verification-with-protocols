@@ -7,6 +7,9 @@ from transactions import *
 import math
 
 shift_fifo = Module.load('shift_register_fifo', ['tacas2020/shift_register_fifo_fixed.v', 'tacas2020/FF.v'])
+#shift_fifo = Module.load('shift_register_fifo', ['tacas2020/shift_register_fifo.v', 'tacas2020/FF.v'])
+#mem_fifo = Module.load('circular_pointer_fifo', ['tacas2020/circular_pointer_fifo.v', 'tacas2020/FF.v'])
+mem_fifo = Module.load('circular_pointer_fifo', ['tacas2020/circular_pointer_fifo_fixed.v', 'tacas2020/FF.v'])
 
 def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 	# architectural state: memory to store values + count to keep track of how many values are valid
@@ -63,16 +66,47 @@ def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 		],
 	)
 
-	mappings = [StateMapping(count, Symbol('count', BVType(addr_bits+1)))] + [
-		StateMapping(
-			Select(mem, BVAdd(read, BV(ii, addr_bits))), Symbol(f'regs[{ii}].reg_inst.Q', BVType(width)),
-			guard=BVUGT(count, BV(ii, addr_bits+1)))
-		for ii in range(depth)
-	]
+	if dut.name.startswith('shift'):
+		mappings = [StateMapping(count, Symbol('count', BVType(addr_bits+1)))] + [
+			StateMapping(
+				Select(mem, BVAdd(read, BV(ii, addr_bits))), Symbol(f'regs[{ii}].reg_inst.Q', BVType(width)),
+				guard=BVUGT(count, BV(ii, addr_bits+1)))
+			for ii in range(depth)
+		]
 
-	invariances = [
-		BVULT(Symbol('count', BVType(addr_bits+1)), BV(depth+1, addr_bits+1))
-	]
+		invariances = [
+			BVULT(Symbol('count', BVType(addr_bits+1)), BV(depth+1, addr_bits+1))
+		]
+	else:
+		assert dut.name.startswith('circular')
+		rdPtr = Symbol('ff_rdPtr.Q', BVType(addr_bits + 1))
+		wrPtr = Symbol('ff_wrPtr.Q', BVType(addr_bits + 1))
+		cnt   = Symbol('cnt', BVType(addr_bits+1))
+
+		mappings = [
+			StateMapping(count, cnt),
+			StateMapping(read, BVExtract(rdPtr, start=0, end=addr_bits-1)),
+			# this might be more performant (definitely easier to write), but results in harder to read CEXs
+		    #StateMapping(mem, Symbol('entries', mem.symbol_type()))
+		] + [
+			# easier to read CEX
+			StateMapping(Select(mem, BV(ii, addr_bits)), Select(Symbol('entries', mem.symbol_type()), BV(ii, addr_bits))) for ii in range(depth)
+		]
+
+
+		invariances = [
+			BVULT(cnt, BV(depth+1, addr_bits+1)),
+			BVULT(rdPtr, BV(depth, addr_bits + 1)),
+			BVULT(wrPtr, BV(depth, addr_bits + 1)),
+			# more complicated invariance because wrPtr, rdPtr and cnt together contain redundant information
+			# if(cnt ==0): assert(rdPtr == wrPtr)
+			# elif(wrPtr > rPtr): assert(cnt == wrPtr - rdPtr)
+			# else:               assert(cnt == depth + wrPtr - rdPtr)
+			Ite(Equals(cnt, BV(0, addr_bits+1)), Equals(rdPtr, wrPtr), Equals(cnt,
+				Ite(BVUGT(wrPtr, rdPtr), BVSub(wrPtr, rdPtr),
+					BVAdd(BV(depth, addr_bits+1), BVSub(wrPtr, rdPtr)))))
+		]
+
 
 	return VerificationProblem(spec=sp, implementation=dut.name, invariances=invariances, mappings=mappings)
 
@@ -80,11 +114,17 @@ def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 
 
 def main() -> int:
-	prob = verification_problem(shift_fifo)
 
 	ee = SMT2ProofEngine(outdir='../smt2')
 	#ee = MCProofEngine(outdir="../btor2")
-	Verifier(shift_fifo, prob, ee).proof_all()
+
+	print("mem_fifo")
+	prob = verification_problem(mem_fifo)
+	Verifier(mem_fifo, prob, ee).proof_all()
+
+	#print("shift_fifo")
+	#prob = verification_problem(shift_fifo)
+	#Verifier(shift_fifo, prob, ee).proof_all()
 
 	return 0
 
