@@ -130,7 +130,8 @@ class BoundedCheck:
 
 		if isinstance(res, CheckFailure):
 			res.model.to_vcd(f'{self._engine.name}.vcd')
-			res.model.run_in_verilator(self._mod, 'verilator.vcd')
+			# TODO: reenable verilator
+			#res.model.run_in_verilator(self._mod, 'verilator.vcd')
 
 		assert success, f"failed check {self.name}\n{res}"
 		return success
