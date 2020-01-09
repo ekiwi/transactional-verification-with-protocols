@@ -12,7 +12,7 @@ from .proto import protocol_edges
 def check_smt_expr(e: SmtExpr, allowed_symbols: Dict[str, SmtSort], msg: str, tpe: Optional[SmtSort] = None):
 	for sym in get_free_variables(e):
 		name, sort = sym.symbol_name(), sym.symbol_type()
-		assert name in allowed_symbols, f"Expression {e} refers to unknown symbol {sym}.\n{msg}"
+		assert name in allowed_symbols, f"Expression {e} refers to unknown symbol {sym}. ({list(allowed_symbols.keys())})\n{msg}"
 		assert sort == allowed_symbols[name], f"Type mismatch for symbol {sym} in expression {e}. Expected {allowed_symbols[name]} \n{msg}"
 	if tpe is not None:
 		assert e.get_type() == tpe, f"Expression {e} is of type {e.get_type()} but needs to be {tpe}"
