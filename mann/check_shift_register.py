@@ -17,6 +17,9 @@ def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 	read = Symbol(f'{dut.name}.read', BVType(addr_bits))
 	state = {'mem': mem.symbol_type(), 'count': count.symbol_type(), 'read': read.symbol_type()}
 
+	not_full = BVULT(count, BV(depth,addr_bits+1))
+	empty = Equals(count, BV(0, addr_bits+1))
+
 	# push
 	push_data = Symbol(f'{dut.name}.Push.push_data', BVType(width))
 	read_plus_count = BVAdd(read, BVExtract(count, start=0, end=addr_bits-1))
@@ -35,16 +38,28 @@ def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 	}
 	pop_proto = ProtocolBuilder(dut).inputs(pop=1, push=0).outputs(empty=0, data_out=pop_data).finish()
 
-	# read full (without pushing)
-	# ... TODO
+	# push pop
+	pushpop_in = Symbol(f'{dut.name}.PushPop.in', BVType(width))
+	pushpop_out = Symbol(f'{dut.name}.PushPop.out', BVType(width))
+	pushpop_sem = {
+		'out': Ite(empty, pushpop_in, Select(mem, read)), # out = empty? in : mem[read]
+		'mem': Store(mem, read_plus_count, pushpop_in),   # mem[read + count] := in
+		'read': BVAdd(read, BV(1, addr_bits)),            # read := read + 1
+	}
+	pushpop_proto = ProtocolBuilder(dut).inputs(pop=1, push=1, data_in=pushpop_in).outputs(data_out=pushpop_out, empty=0).finish()
 
-	not_full = BVULT(count, BV(depth,addr_bits+1))
-	not_empty = Not(Equals(count, BV(0, addr_bits+1)))
+	# Idle
+	idle_proto = ProtocolBuilder(dut).inputs(pop=0, push=0).outputs().finish()
 
 	sp = Spec(state=state,
 		transactions=[
+			Transaction("Idle", idle_proto),
 			Transaction("Push", push_proto, push_sem, args={'push_data': BVType(width)}, guard=not_full),
-			Transaction("Pop", pop_proto, pop_sem, ret_args={'pop_data': BVType(width)}, guard=not_empty),
+			Transaction("Pop", pop_proto, pop_sem, ret_args={'pop_data': BVType(width)}, guard=Not(empty)),
+			Transaction("PushPop", pushpop_proto, pushpop_sem, args={'in': BVType(width)}, ret_args={'out': BVType(width)},
+						guard=And(Not(empty), TRUE())),
+						# see the shift_register_top.v source code: assume(!(empty & pop)), assume(!(full & push))
+						# the shift register cannot be transparent :(, however, PushPop actually works on a full FIFO!
 		],
 	)
 
