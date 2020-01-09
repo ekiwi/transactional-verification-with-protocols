@@ -190,7 +190,7 @@ class VeriGraphToCheck:
 
 		##### constraints
 		# input constraints
-		I = [conjunction(*edge.constraints.input) for edge in state.edges]
+		I = [conjunction(*edge.guards, *edge.constraints.input) for edge in state.edges]
 		# argument mappings
 		A = [substitute(conjunction(*edge.constraints.arg), self.arg_sub) for edge in state.edges]
 		# output constraints
@@ -236,7 +236,7 @@ class VeriGraphToCheck:
 		# path computation and argument mappings
 		for ei, edge in enumerate(state.edges):
 			# next guard (is this edge taken)?
-			next_cond = And(guard, And(I[ei], O[ei]))
+			next_cond = conjunction(guard, I[ei], O[ei])
 
 			# create edge symbol from edge name and prefix
 			edge_name = self.graph.edge_id_to_name[id(edge)]

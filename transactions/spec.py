@@ -45,6 +45,7 @@ class Transaction:
 	semantics : Dict[str, SmtExpr] = field(default_factory=dict)
 	args: Dict[str, SmtSort] = field(default_factory=dict)
 	ret_args: Dict[str, SmtSort] = field(default_factory=dict)
+	guard: Optional[SmtExpr] = None
 
 @dataclass
 class Spec:

@@ -4,7 +4,7 @@
 # code to verify the well-formedness (i.e. semantic checks) of a verification problem and spec
 
 from .spec import *
-from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Not
+from pysmt.shortcuts import get_free_variables, BOOL, Symbol, Not, TRUE
 from typing import Optional, Any
 from .proto import protocol_edges
 
@@ -120,6 +120,11 @@ def legacy_converter(proto: LegacyProtocol) -> Protocol:
 def check_transaction(tran: Transaction, mod: RtlModule, arch_state_symbols: Dict[str, SmtSort]):
 	require_scalar(tran.args, "Transaction argument")
 	require_scalar(tran.ret_args, "Transaction return argument")
+
+	# check guard if available
+	if tran.guard is None: tran.guard = TRUE()
+	check_smt_expr(tran.guard, prefix_index(f"{mod.name}.", arch_state_symbols), tpe=BOOL,
+				   msg="Transaction guard can only refer to architectural state!")
 
 	input_symbols = merge_indices(prefix_index(f"{mod.name}.", arch_state_symbols),
 								  prefix_index(f"{mod.name}.{tran.name}.", tran.args))

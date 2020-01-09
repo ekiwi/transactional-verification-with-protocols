@@ -243,6 +243,7 @@ class VeriEdge:
 	# constraints of the form: `(done = 1)`
 	constraints: EdgeConstraints
 	transactions: Set[str]
+	guards: List[SmtExpr]
 	arg_mappings: List[ArgMapping] = field(default_factory=list)
 	next: Optional[VeriState] = None
 	def __str__(self):
@@ -377,7 +378,7 @@ class ProtocolToVerificationGraphConverter:
 			self.intervals[name].append((msb,lsb))
 		arg_mappings = [ArgMapping(name=name, msb=msb, lsb=lsb, expr=expr) for name,msb,lsb,expr in new_mappings]
 
-		new_edge = VeriEdge(ii, constraints, arg_mappings=arg_mappings, transactions={self.tran.name})
+		new_edge = VeriEdge(ii, constraints, arg_mappings=arg_mappings, transactions={self.tran.name}, guards=[self.tran.guard])
 
 		#print("Edge @ ", ii, input_constraints, input_mappings, output_constraints, output_mappings)
 		new_edge.next = self.visit_state(prefix + [new_edge], new_arg_map, new_ret_arg_map, edge.next)
