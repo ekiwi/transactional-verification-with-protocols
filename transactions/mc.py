@@ -358,6 +358,10 @@ class Smt2ToBtor2(DagWalker):
 	def walk_binop(self, op, formula, args, **kwargs):
 		return self._l(f"{op} {self._sort(formula.get_type())} {args[0]} {args[1]}")
 
+	def walk_bv_ult(self, formula, args, **kwargs): return self.walk_cmp("ult", args, **kwargs)
+	def walk_cmp(self, op, args, **kwargs):
+		return self._l(f"{op} {self._sort(BVType(1))} {args[0]} {args[1]}")
+
 	def walk_not(self, formula, args, **kwargs): return self.walk_unop("not", formula, args, **kwargs)
 	def walk_unop(self, op, formula, args, **kwargs):
 		return self._l(f"{op} {self._sort(formula.get_type())} {args[0]}")
