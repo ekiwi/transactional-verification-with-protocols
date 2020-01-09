@@ -63,7 +63,7 @@ module circular_pointer_fifo(clk, rst, push, pop, data_in,
 
   //************** latch entries ***************//
 
-`ifdef ARRAY
+//`ifdef ARRAY
    reg [WIDTH-1:0]   entries [DEPTH-1:0];
    wire [WIDTH-1:0]  input_data;
 
@@ -72,6 +72,7 @@ module circular_pointer_fifo(clk, rst, push, pop, data_in,
    always @(posedge clk) begin
       entries[wrPtr[PTRWID-2:0]] <= input_data;
    end
+/*
 `else
   wire [WIDTH-1:0] entries [DEPTH-1:0];
   generate
@@ -86,7 +87,7 @@ module circular_pointer_fifo(clk, rst, push, pop, data_in,
     end
   endgenerate
 `endif
-
+*/
 
 
   //******************** output *******************//
