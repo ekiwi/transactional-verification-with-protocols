@@ -260,7 +260,7 @@ class SMT2ProofEngine:
 				name = f"{sym.symbol_name()}_cyc{ii}_read"
 				data[ii][indices[sym.symbol_name()]] = values[name]
 
-		constants = {name: values[name] for name in (sym.symbol_name() for sym in funs)}
+		constants = {name: values[name] for name in (sym.symbol_name() for sym in funs if not sym.symbol_type().is_array_type())}
 
 		model = Model(name=mod_name, cycles=cycle+1, indices=indices, signals=signals, data=data, constants=constants, creation_time=delta)
 
@@ -384,15 +384,20 @@ class Solver:
 		# parse model
 		start = time.time()
 		values = self._parse_model(lines[1:])
-		for rr in reads: assert rr.symbol_name() in values, f"{rr} is missing from the values returned by the solver"
+		for rr in reads:
+			if not rr.symbol_name() in values:
+				print(f"WARN: {rr} is missing from the values returned by the solver")
+			#assert rr.symbol_name() in values, f"{rr} is missing from the values returned by the solver"
 		delta = time.time() - start
 		return values, delta + sat_time
 
 
 	def _parse_model(self, lines):
 		suffix = r'\)\)'
-		bv_bool = '(#b[01]+|false|true)'
-		re_read = re.compile(f'\(\(([a-zA-Z_0-9@\.]+)\s+' + bv_bool + suffix)
+		bv_bool = r'(#b[01]+|false|true)'
+		unescaped_name = r'([a-zA-Z_0-9@\.]+)'
+		escaped_name = r'(\|[^|]+\|)'
+		re_read = re.compile(r'\(\((' + escaped_name + '|' + unescaped_name + ')\s+' + bv_bool + suffix)
 
 		def parse_value(vv):
 			if vv == 'true': return 1
@@ -407,8 +412,8 @@ class Solver:
 			if m is None:
 				print(f"WARN: Failed to parse line: {line}")
 				continue
-			name, value = m.groups()
-			values[name] = parse_value(value)
+			name, value = [r for r in m.groups() if r is not None][1:]
+			values[name.strip('|')] = parse_value(value)
 
 		return values
 
