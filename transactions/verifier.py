@@ -91,7 +91,7 @@ def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod
 
 	# in the initial state, the state mapping holds
 	for mapping in mappings:
-		check.assume_at(0, Equals(mapping.arch, mapping.impl))
+		check.assume_at(0, Implies(mapping.guard, Equals(mapping.arch, mapping.impl)))
 
 	#
 	final_states = encode_module(is_toplevel=True, offset=0, prefix="", graph=graph, check=check, spec=spec, mod=mod)
@@ -104,7 +104,8 @@ def encode_toplevel_module(graph: VeriSpec, check: BoundedCheck, spec: Spec, mod
 		arch_next = {Symbol(f"{mod.name}.{name}", tpe): Symbol(f"{mod.name}.{state.transaction}.{name}_n", tpe) for name, tpe in spec.state.items()}
 		for mapping in mappings:
 			arch = substitute(mapping.arch, arch_next)
-			check.assert_at(state.ii, Implies(state.guard, Equals(arch, mapping.impl)))
+			guard = substitute(mapping.guard, arch_next)
+			check.assert_at(state.ii, Implies(state.guard, Implies(guard, Equals(arch, mapping.impl))))
 
 	# we have to explore at least one final state
 	assert len(final_states) > 0, f"found no final states!"

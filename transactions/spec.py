@@ -58,6 +58,7 @@ class Spec:
 class StateMapping:
 	arch: SmtExpr
 	impl: SmtExpr
+	guard: Optional[SmtExpr] = None
 
 @dataclass
 class VerificationProblem:

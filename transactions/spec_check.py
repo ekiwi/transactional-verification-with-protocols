@@ -66,6 +66,8 @@ def check_verification_problem(prob: VerificationProblem, mod: RtlModule):
 					   msg="Should only refer to architectural state.")
 		check_smt_expr(mapping.impl, invariance_symbols,
 					   msg="Should only refer to implementation state or architectural state of abstracted submodules.")
+		if mapping.guard is None: mapping.guard = TRUE()
+		# TODO: should we restrict the mapping somehow?
 
 	# check toplevel spec
 	check_spec(prob.spec, mod)
