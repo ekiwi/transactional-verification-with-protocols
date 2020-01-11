@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+import time
 
 from pysmt.shortcuts import *
 from transactions import *
 import math
 
-shift_fifo = Module.load('shift_register_fifo', ['tacas2020/shift_register_fifo_fixed.v', 'tacas2020/FF.v'])
-#shift_fifo = Module.load('shift_register_fifo', ['tacas2020/shift_register_fifo.v', 'tacas2020/FF.v'])
-#mem_fifo = Module.load('circular_pointer_fifo', ['tacas2020/circular_pointer_fifo.v', 'tacas2020/FF.v'])
-mem_fifo = Module.load('circular_pointer_fifo', ['tacas2020/circular_pointer_fifo_fixed.v', 'tacas2020/FF.v'])
+def load(name: str, fixed: bool, depth=8, width=32):
+	assert name in {'shift_register_fifo', 'circular_pointer_fifo'}
+	ff = "_fixed" if fixed else ""
+	src = [f'tacas2020/{name}{ff}.v', 'tacas2020/FF.v']
+	return Module.load(name, src, params={'WIDTH': width, 'DEPTH': depth})
 
-def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
+def verification_problem(dut: Module, depth=8, width=32) -> VerificationProblem:
 	# architectural state: memory to store values + count to keep track of how many values are valid
 	addr_bits = int(math.log2(depth))
 	assert depth == 2**addr_bits, f"Only power of two depths are supported, not: {depth}"
@@ -45,7 +46,7 @@ def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 	pushpop_in = Symbol(f'{dut.name}.PushPop.in', BVType(width))
 	pushpop_out = Symbol(f'{dut.name}.PushPop.out', BVType(width))
 	pushpop_sem = {
-		'out': Ite(empty, pushpop_in, Select(mem, read)), # out = empty? in : mem[read]
+		'out': Ite(empty, pushpop_in, Select(mem, read)), # out = empty? in : mem[read] # but actually empty is always false!
 		'mem': Store(mem, read_plus_count, pushpop_in),   # mem[read + count] := in
 		'read': BVAdd(read, BV(1, addr_bits)),            # read := read + 1
 	}
@@ -111,6 +112,34 @@ def verification_problem(dut: Module, depth=8, width=8) -> VerificationProblem:
 	return VerificationProblem(spec=sp, implementation=dut.name, invariances=invariances, mappings=mappings)
 
 
+def verify(name: str, fixed: bool, ee, depth: int, width: int):
+	ff = " (fixed)" if fixed else ""
+	print(f"Verifying {name}{ff} for DEPTH={depth}, WIDTH={width}")
+
+	start = time.time()
+	mod = load(name, fixed, depth, width)
+	load_time = time.time() - start
+	print(f"- {load_time:.3f} sec to load and parse verilog sources")
+
+	start = time.time()
+	prob = verification_problem(mod, depth=depth, width=width)
+	prob_time = time.time() - start
+	print(f"- {prob_time:.3f} to create the verification problem")
+
+	start = time.time()
+	if fixed:
+		Verifier(mod, prob, ee).proof_all()
+	else:
+		try:
+			Verifier(mod, prob, ee).proof_all()
+		except AssertionError:
+			pass
+	verif_time = time.time() - start
+	print(f"- {verif_time:.3f} (end-to-end) to run the verification")
+
+	# ugly part of using PySMT
+	reset_env()
+	print()
 
 
 def main() -> int:
@@ -118,16 +147,12 @@ def main() -> int:
 	ee = SMT2ProofEngine(outdir='../smt2')
 	#ee = MCProofEngine(outdir="../btor2")
 
-	print("mem_fifo")
-	prob = verification_problem(mem_fifo)
-	Verifier(mem_fifo, prob, ee).proof_all()
-
-	# ugly part of using PySMT
-	reset_env(); print()
-
-	print("shift_fifo")
-	prob = verification_problem(shift_fifo)
-	Verifier(shift_fifo, prob, ee).proof_all()
+	duts = ['shift_register_fifo', 'circular_pointer_fifo']
+	width = 32
+	for depth in [8, 16, 32, 64, 128]:
+		for name in duts:
+			for fixed in [False, True]:
+				verify(name, fixed, ee, depth=depth, width=width)
 
 	return 0
 
