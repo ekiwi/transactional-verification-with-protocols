@@ -20,7 +20,7 @@ def require_yosys() -> str:
 	return version
 
 #@cache_to_disk(1)
-def parse_verilog(filenames: List[str], top: str,  ignore_wires: bool = True, pre_mc_cmds= None, formats = None):
+def parse_verilog(filenames: List[str], top: str,  ignore_wires: bool = True, pre_mc_cmds= None, formats = None, params=None):
 	for ff in filenames:
 		assert os.path.isfile(ff), ff
 	available_formats = ['smt2', 'btor', 'v', 'ilang']
@@ -31,6 +31,9 @@ def parse_verilog(filenames: List[str], top: str,  ignore_wires: bool = True, pr
 	with tempfile.TemporaryDirectory() as dd:
 		outprefix = os.path.join(dd, top)
 		cmds  = [f"read_verilog -sv -defer {ff}" for ff in filenames]
+		if params is not None:
+			setters = [f"-set {name} {value}" for name, value in params.items()]
+			cmds += [f"chparam {' '.join(setters)} {top}"]
 		cmds += [f"prep -nordff -top {top}"]
 		if 'v' in formats: cmds += [f"write_verilog {outprefix}.v"]
 		if 'ilang' in formats: cmds += [f"write_ilang {outprefix}.ilang"]
