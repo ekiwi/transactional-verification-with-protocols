@@ -37,6 +37,9 @@ shift_register_top_w32_d128_e0
 shift_register_top_w64_d128_e0
 shift_register_top_w64_d64_e0
 ```
+**IMPORTANT**: there are more solved configurations!
+E.g. `abc.superprove` solved one `d=128` configuration
+of the `shift` fifo.
 
 
 Solved configurations include:
