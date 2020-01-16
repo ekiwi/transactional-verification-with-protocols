@@ -21,15 +21,25 @@ def get_ith_msb(n, i):
     """
     return (n >> (31 - i)) & 0b1
 
+def sra(n, i):
+    """
+    Performs an arithmetic right shift.
+    Even though >> is the arithmetic shift operator in Python, integers are wider than 32 bits, so
+    for our purposes it functions a logical shift.
+    """
+    return ((n >> i) | (0xffffffff << (32 - i)) & (0xffffffff if get_ith_msb(n, 0) else 0x0))
+
 @dataclass
 class Params:
     val: int
     shamt: int
 
+
 @cocotb.coroutine
-def create_sll_test(dut, params: Params):
+def create_shift_test(dut, params: Params, right: bool, arithmetic=False):
     log = dut._log
-    log.info(f"Testing {params.val} << {params.shamt}")
+    op_string = ">>" if arithmetic else (">>>" if right else "<<")
+    log.info(f"Testing {params.val} {op_string} {params.shamt}")
 
     def assign_sig(name, val):
         # hack to mimic async assign
@@ -59,9 +69,8 @@ def create_sll_test(dut, params: Params):
             "i_rd_sel": 0b01
         },
         I_EN_CYC: {
-            # For left shifts, hold i_sh_signed and i_sh_right low
-            "i_sh_signed": 0,
-            "i_sh_right": 0,
+            "i_sh_signed": int(arithmetic),
+            "i_sh_right": int(right),
             # Assert i_en and i_init for 32 cycles
             "i_en": 1,
             "i_init": 1,
@@ -87,17 +96,29 @@ def create_sll_test(dut, params: Params):
         buf_dict_2["i_buf"] = (params.val >> i) & 0b1
 
     exp_outputs = defaultdict(dict)
-    # Instruction 7C (1 << 1) takes 63 cycles between i_en and o_sh_done
-    # Instruction 80 (1 << 15) takes 49 cycles
-    # Instruction 84 (1 << 31) takes 33 cycles
-    # => The number of cycles a shift takes = 64 - shamt
-    # If the shamt is 0, then done is asserted 1 cycle after i_en instead
-    exp_done_cycle = I_EN_CYC + 64 - params.shamt if params.shamt != 0 else I_EN_CYC + 1
+    if params.shamt == 0:
+        exp_done_cycle = I_EN_CYC + 1
+    elif right:
+        # The discrepancy between right and left shift is likely because a left shift is
+        # encoded as a negative right shift
+        exp_done_cycle = I_EN_CYC + 32 + params.shamt
+    else:
+        # Instruction 7C (1 << 1) takes 63 cycles between i_en and o_sh_done
+        # Instruction 80 (1 << 15) takes 49 cycles
+        # Instruction 84 (1 << 31) takes 33 cycles
+        # => The number of cycles a shift takes = 64 - shamt
+        # If the shamt is 0, then done is asserted 1 cycle after i_en instead
+        exp_done_cycle = I_EN_CYC + 64 - params.shamt
     exp_outputs[exp_done_cycle]["o_sh_done"] = 1
     # TODO ensure o_sh_done is 0 elsewhere
     # The value of o_rd is asserted beginning one cycle after o_sh_done is asserted
     # If shamt is 0, then it's asserted beginning... 32 cycles after o_sh_done?
-    exp_result = params.val << params.shamt
+    if arithmetic:
+        exp_result = sra(params.val, params.shamt)
+    elif right:
+        exp_result = params.val >> params.shamt
+    else:
+        exp_result = params.val << params.shamt
     for i in range(32):
         cycle = i + exp_done_cycle + 1 if params.shamt != 0 else exp_done_cycle + i + 32
         exp_outputs[cycle]["o_rd"] = (exp_result >> i) & 0b1
@@ -141,15 +162,69 @@ def test_sll(dut):
         Params(1, 0)
     ]
     for params in tests:
-        yield create_sll_test(dut, params)
+        yield create_shift_test(dut, params, right=False)
 
 @cocotb.test()
 def test_b_sll(dut):
     tests = [
-        Params(0xabcdef110, 10),
-        Params(0xadf344402, 15),
+        Params(0xbcdef110, 10),
+        Params(0xdf344402, 15),
         Params(0x3949, 16),
         Params(0x94995, 0),
     ]
     for params in tests:
-        yield create_sll_test(dut, params)
+        yield create_shift_test(dut, params, right=False)
+
+@cocotb.test()
+def test_srl(dut):
+    tests = [
+        Params(0, 1),
+        Params(0, 15),
+        Params(0, 31),
+        Params(0, 0),
+        Params(1, 1),
+        Params(1, 15),
+        Params(1, 31),
+        Params(1, 0)
+    ]
+    for params in tests:
+        yield create_shift_test(dut, params, right=True)
+
+@cocotb.test()
+def test_b_srl(dut):
+    tests = [
+        Params(0xbcdef110, 10),
+        Params(0xdf344402, 15),
+        Params(0x3949, 16),
+        Params(0x94995, 0),
+        Params(0xffffffff, 0)
+    ]
+    for params in tests:
+        yield create_shift_test(dut, params, right=True)
+
+@cocotb.test()
+def test_sra(dut):
+    tests = [
+        Params(0, 1),
+        Params(0, 15),
+        Params(0, 31),
+        Params(0, 0),
+        Params(1, 1),
+        Params(1, 15),
+        Params(1, 31),
+        Params(1, 0)
+    ]
+    for params in tests:
+        yield create_shift_test(dut, params, right=True, arithmetic=True)
+
+@cocotb.test()
+def test_b_sra(dut):
+    tests = [
+        Params(0xbcdef110, 10),
+        Params(0xdf344402, 15),
+        Params(0x3949, 16),
+        Params(0x94995, 0),
+        Params(0xffffffff, 0)
+    ]
+    for params in tests:
+        yield create_shift_test(dut, params, right=True, arithmetic=True)
