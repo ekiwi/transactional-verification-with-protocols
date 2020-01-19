@@ -119,8 +119,10 @@ def main() -> int:
 					  ignore_wires=False,
 					  blackbox=list(prob.submodules.keys()))
 	print(f"Trying to proof {mod.name}")
-	veri = Verifier(mod, prob, ee)
-	veri.proof_all()
+	#veri = Verifier(mod, prob, ee)
+	#veri.proof_all()
+
+	InteractiveVerifier(mod, prob).proof_all()
 
 	return 0
 

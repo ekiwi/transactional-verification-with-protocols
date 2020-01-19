@@ -12,3 +12,4 @@ from .smt2 import SMT2ProofEngine
 from .verilator import simulate
 from .visualization import protocol_to_wavedrom, protocol_to_wavedrom_file, trace_to_wavedrom, composition_to_wavedrom
 from .proto import ProtocolBuilder, DontCare
+from .interactive import InteractiveVerifier
