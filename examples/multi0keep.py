@@ -22,7 +22,7 @@ p.step()
 p['start'] = 0
 p['inp'] = DontCare
 
-p['done'].wait(1, max=3)
+p['done'].wait(1, max=1)
 # while p['done'] != 1:
 #   p.step()
 #
@@ -36,7 +36,7 @@ ret_args={'data_out': BVType(32)}
 
 read_protocol = ProtocolBuilder(mod).inputs(start=0).outputs(done=0, out=Symbol('multi0keep.Read.data_out', BVType(32))).finish()
 
-spec = Spec(state={'data': BVType(32)}, transactions=[
+spec = Spec(state={'data': BVType(32)}, idle=None, transactions=[
 	Transaction(f"Delay", proto=protocol, semantics=semantics, args=args, ret_args=ret_args),
 	Transaction(f"Read", proto=read_protocol, semantics={'data_out': data}, args={}, ret_args=ret_args)]
 )
@@ -50,8 +50,8 @@ def main() -> int:
 	prob = VerificationProblem(spec=spec, implementation='multi0keep',
 							   invariances=invariances, mappings=mappings)
 
-	ee = SMT2ProofEngine(outdir='../smt2')
-	#ee = MCProofEngine(outdir="../btor2")
+	#ee = SMT2ProofEngine(outdir='../smt2', simplify=True)
+	ee = MCProofEngine(outdir="../btor2")
 	Verifier(mod, prob, ee).proof_all()
 	return 0
 
