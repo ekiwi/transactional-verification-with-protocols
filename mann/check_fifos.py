@@ -147,6 +147,11 @@ def main() -> int:
 	ee = SMT2ProofEngine(outdir='../smt2')
 	#ee = MCProofEngine(outdir="../btor2")
 
+	verify('shift_register_fifo', True, ee, 8, 8)
+
+	print("Skipping benchmark")
+	return 0
+
 	duts = ['shift_register_fifo', 'circular_pointer_fifo']
 	width = 32
 	for depth in [8, 16, 32, 64, 128]:
