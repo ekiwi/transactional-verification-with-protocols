@@ -6,7 +6,8 @@ from collections import defaultdict
 from typing import Set, Optional
 from itertools import chain
 
-from pysmt.shortcuts import Not, Type, Symbol, FunctionType, BOOL, Function, Ite, BV, substitute, Implies, Equals, TRUE
+from pysmt.shortcuts import Not, Type, Symbol, FunctionType, BOOL, Function, Ite, BV, substitute, Implies, Equals, TRUE, \
+	simplify
 from pysmt.smtlib.script import smtcmd, SmtLibCommand
 
 from .utils import SmtExpr, disjunction, conjunction
@@ -26,6 +27,9 @@ class InteractiveVerifier:
 	def verify_inductive_base_case(self):
 		""" prove that the invariances hold after reset """
 		print("WARN: TODO: prove inductive base case!")
+
+	def
+
 
 	def verify_transaction(self, tran: Transaction):
 		print(f"Verifying {self.mod.name}.{tran.name}")
@@ -66,19 +70,31 @@ class InteractiveVerifier:
 
 			### Find feasible submodule edges
 			feasible = {}
+			required = {}
 			for nn, states in sub_states.items():
 				print(f"Trying to find edges for {nn} in cycle {cycle}")
 				feasible[nn] = []
+				#required[nn] = []
 				for subguard, substate in states:
 					for subedge in substate.edges:
-						subI = conjunction(*subedge.guards, *subedge.constraints.input)
-						if check.is_feasible_at(cycle, Implies(subguard, subI)):
+						subI = Implies(subguard,conjunction(*subedge.guards, *subedge.constraints.input))
+						subI = simplify(subI)
+						is_feasible = check.is_feasible_at(cycle, subI)
+						#is_required = False if not is_feasible else check.is_required_at(cycle, subI)
+						#if is_required:
+						#	print(f"required:   {subI}")
+						#	required[nn].append((subguard, subedge, subI))
+						#elif is_feasible:
+						if is_feasible:
 							print(f"feasible:   {subI}")
-							feasible[nn].append((subguard, subedge))
+							feasible[nn].append((subguard, subedge, subI))
 						else:
 							print(f"infeasible: {subI}")
+				#assert len(feasible[nn]) > 0 or len(required[nn]) > 0, f"Found no possible methods for {nn}"
+				assert len(feasible[nn]) > 0, f"Found no possible methods for {nn}"
 
 			### Find all feasible combinations of submodule edges
+			
 
 
 
@@ -116,7 +132,7 @@ class InteractiveCheck:
 	def __init__(self, mod: Module):
 		self._mod = mod
 		self._sym_names: Set[str] = set(self._mod.signals.keys())
-		self._s = InteractiveSolver('yices2', debug=True)
+		self._s = InteractiveSolver('yices2', debug=False)
 		self._state_t = Type(mod.name + "_s")
 		self._tran = Symbol(mod.name + "_t", FunctionType(BOOL, [self._state_t, self._state_t]))
 		self._states = [Symbol("s0", self._state_t)]
@@ -176,9 +192,16 @@ class InteractiveCheck:
 		self._s.add(self._in_cycle(cycle, expr))
 
 	def is_feasible_at(self, cycle: int, expr: SmtExpr):
+		""" checks if there exists a solution with this constraint """
 		assert self.cycles >= cycle >= 0, f"{self.cycles} >= {cycle} >= 0"
 		is_sat, _ = self._s.check_sat([self._in_cycle(cycle, expr)])
 		return is_sat
+
+	def is_required_at(self, cycle: int, expr: SmtExpr):
+		""" checks if there exists a solution when this constraint does not hold """
+		assert self.cycles >= cycle >= 0, f"{self.cycles} >= {cycle} >= 0"
+		is_sat, _ = self._s.check_sat([self._in_cycle(cycle, Not(expr))])
+		return not is_sat
 
 	def constant(self, sym: Symbol):
 		self._s.fun(sym)
