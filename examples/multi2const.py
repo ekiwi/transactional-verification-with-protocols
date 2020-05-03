@@ -37,9 +37,10 @@ spec = Spec(
 )
 
 invariances = [
+# TODO: currently the way all of this is implemented, we do not need any invariances
 #	Equals(Symbol('running', BVType(1)), BV(0,1)),
-	Equals(Symbol('lsb_unit.running', BVType(1)), BV(0,1)),
-	Equals(Symbol('msb_unit.running', BVType(1)), BV(0,1)),
+#	Equals(Symbol('lsb_unit.running', BVType(1)), BV(0,1)),
+#	Equals(Symbol('msb_unit.running', BVType(1)), BV(0,1)),
 ]
 
 no_abstraction_check = VerificationProblem(
