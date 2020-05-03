@@ -430,8 +430,9 @@ def _write_scrip(header, filename, funs: List[Symbol], fun_defs: List[FunctionDe
 			SmtLibCommand(smtcmd.DECLARE_FUN, [symbol]).serialize(outstream=ff, daggify=False)
 			print("", file=ff)
 		for fd in fun_defs:
-			#       NAME                     PARAMS_LIST    RTYPE               EXPR
-			args = [fd.symbol.symbol_name(), fd.args,       fd.expr.get_type(), fd.expr]
+			rtype_str = fd.expr.get_type().as_smtlib()[3:]
+			#       NAME                     PARAMS_LIST    RTYPE       EXPR
+			args = [fd.symbol.symbol_name(), fd.args,       rtype_str,  fd.expr]
 			SmtLibCommand(smtcmd.DEFINE_FUN, args).serialize(outstream=ff, daggify=False)
 			print("", file=ff)
 		for a in assertions:
